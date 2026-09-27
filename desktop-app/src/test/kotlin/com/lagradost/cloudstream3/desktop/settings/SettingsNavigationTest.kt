@@ -32,9 +32,9 @@ class SettingsNavigationTest {
     }
 
     @Test
-    fun testBottomNavItems_ContainsAboutTab() {
-        assertEquals(1, BOTTOM_NAV_ITEMS.size)
-        assertEquals(LeafTab.ABOUT, BOTTOM_NAV_ITEMS.first())
+    fun testBottomNavItems_ContainsUpdatesAndAboutTabs() {
+        assertEquals(2, BOTTOM_NAV_ITEMS.size)
+        assertEquals(listOf(LeafTab.UPDATES, LeafTab.ABOUT), BOTTOM_NAV_ITEMS)
     }
 
     @Test

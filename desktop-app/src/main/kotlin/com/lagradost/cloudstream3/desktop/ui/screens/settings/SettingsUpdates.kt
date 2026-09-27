@@ -511,7 +511,7 @@ private fun BinaryPackageItem(
         }
 
         // Live Download Progress Bar
-        if (isDownloading && downloadTask != null) {
+        if (downloadTask?.status == TaskStatus.RUNNING) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
