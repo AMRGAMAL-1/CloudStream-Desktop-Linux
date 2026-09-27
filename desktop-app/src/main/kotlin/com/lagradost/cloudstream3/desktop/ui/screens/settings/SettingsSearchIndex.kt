@@ -127,8 +127,10 @@ object SettingsSearchIndex {
         SettingsSearchEntry("Network Diagnostics", LeafTab.DEVELOPER, listOf("network", "diagnostics", "debug", "ping", "connectivity"), uiLabel = "Network Diagnostics"),
         SettingsSearchEntry("Logcat Live Viewer", LeafTab.DEVELOPER, listOf("logcat", "logs", "debug", "crash", "console", "f12"), uiLabel = "Logcat Viewer"),
 
+        // Updates tab
+        SettingsSearchEntry("Check for App Updates", LeafTab.UPDATES, listOf("update", "version", "check", "new", "release", "download"), uiLabel = "Check for Updates"),
+
         // About tab
-        SettingsSearchEntry("Check for App Updates", LeafTab.ABOUT, listOf("update", "version", "check", "new", "release", "download"), uiLabel = "Check for Updates"),
         SettingsSearchEntry("About CloudStream Desktop", LeafTab.ABOUT, listOf("about", "version", "info", "license", "credits", "github"), uiLabel = "About"),
     )
 }

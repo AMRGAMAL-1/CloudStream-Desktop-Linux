@@ -70,12 +70,18 @@ class PlayerStreamScraper(
                     val parsedEpisode = parts.getOrNull(2)?.toIntOrNull()
                     val epNumber = nextEp.episode ?: parsedEpisode ?: currentData.history.episode
                     val seasonNumber = nextEp.season ?: parsedSeason ?: currentData.history.season
+                    val isSeries = currentData.loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
+                        currentData.loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
+                        seasonNumber != null || epNumber != null
 
                     StremioAddonManager.searchStreams(
                         imdbId = resolvedImdbId,
                         season = seasonNumber,
                         episode = epNumber,
                         title = currentData.history.showName,
+                        mediaId = nextEpId,
+                        isSeries = isSeries,
+                        onSubtitle = { sub -> collectedSubs.add(sub) },
                         onLink = { link -> collectedLinks.add(link) },
                     )
                 } else {
@@ -154,6 +160,9 @@ class PlayerStreamScraper(
 
         val epNumber = targetEpisodeData?.episode ?: parsedEpisode ?: currentLaunchData.history.episode
         val seasonNumber = targetEpisodeData?.season ?: parsedSeason ?: currentLaunchData.history.season
+        val isSeries = currentLaunchData.loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
+            currentLaunchData.loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
+            seasonNumber != null || epNumber != null
 
         if (provider.providerType == ProviderType.MetaProvider || provider.name.equals("Stremio", ignoreCase = true)) {
             AppLogger.i("PlayerStreamScraper", "Directly searching stream addons for MetaProvider: ${provider.name}")
@@ -162,6 +171,9 @@ class PlayerStreamScraper(
                 season = seasonNumber,
                 episode = epNumber,
                 title = currentLaunchData.history.showName,
+                mediaId = targetEpisodeId,
+                isSeries = isSeries,
+                onSubtitle = { sub -> sharedSubtitleCallback(sub) },
                 onLink = { link -> sharedLinkCallback(link) },
             )
             return Result.success(Unit)
@@ -214,6 +226,9 @@ class PlayerStreamScraper(
                 season = seasonNumber,
                 episode = epNumber,
                 title = currentLaunchData.history.showName,
+                mediaId = targetEpisodeId,
+                isSeries = isSeries,
+                onSubtitle = { sub -> sharedSubtitleCallback(sub) },
                 onLink = { link -> sharedLinkCallback(link) },
             )
         }

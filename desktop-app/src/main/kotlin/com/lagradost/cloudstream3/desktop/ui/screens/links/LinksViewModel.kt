@@ -34,7 +34,15 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
 
     override fun handleEvent(event: LinksUiEvent) {
         when (event) {
-            is LinksUiEvent.OnScrape -> scrapeLinks(event.provider, event.dataUrl)
+            is LinksUiEvent.OnScrape -> scrapeLinks(
+                provider = event.provider,
+                dataUrl = event.dataUrl,
+                title = event.title,
+                forceRefresh = event.forceRefresh,
+                isSeriesParam = event.isSeries,
+                seasonParam = event.season,
+                episodeParam = event.episode,
+            )
             is LinksUiEvent.OnCancelScrape -> cancelScrape()
             is LinksUiEvent.OnStatusTextChanged -> updateState { copy(statusText = event.text) }
             is LinksUiEvent.OnSaveWatchPosition -> saveWatchPosition(event.history, event.positionMs, event.durationMs)
@@ -54,6 +62,7 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
             is LinksUiEvent.OnPlayLink -> handlePlayLink(event)
             is LinksUiEvent.OnFilterQuality -> updateState { copy(selectedQuality = event.quality) }
             is LinksUiEvent.OnFilterFormat -> updateState { copy(selectedFormat = event.format) }
+            is LinksUiEvent.OnFilterSource -> updateState { copy(selectedSource = event.source) }
             is LinksUiEvent.OnPlayerLaunchFinished -> updateState {
                 copy(
                     isLaunchingPlayer = false,
@@ -73,8 +82,39 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
         }
     }
 
-    private fun scrapeLinks(provider: MainAPI, dataUrl: String) {
+    private fun scrapeLinks(
+        provider: MainAPI,
+        dataUrl: String,
+        title: String? = null,
+        forceRefresh: Boolean = false,
+        isSeriesParam: Boolean? = null,
+        seasonParam: Int? = null,
+        episodeParam: Int? = null,
+    ) {
         scrapeJob?.cancel()
+
+        val parts = if (dataUrl.contains(":")) dataUrl.split(":") else emptyList()
+        val cleanImdb = if (dataUrl.startsWith("tt", ignoreCase = true)) parts.firstOrNull() else null
+        val cacheKeys = listOfNotNull(dataUrl, cleanImdb, episodeParam?.let { "$dataUrl:$it" }).distinct()
+
+        if (!forceRefresh) {
+            val cached = cacheKeys.firstNotNullOfOrNull { com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.get(it) }
+            if (cached != null && cached.links.isNotEmpty()) {
+                AppLogger.i("LinksViewModel", "Restored ${cached.links.size} streams from LinkCache for $dataUrl")
+                updateState {
+                    copy(
+                        links = cached.links,
+                        subtitles = cached.subtitles,
+                        isScraping = false,
+                        statusText = "Ready — ${cached.links.size} stream${if (cached.links.size == 1) "" else "s"} available.",
+                        selectedSource = null,
+                    )
+                }
+                return
+            }
+        } else {
+            cacheKeys.forEach { com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.remove(it) }
+        }
 
         updateState {
             copy(
@@ -82,12 +122,14 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                 subtitles = emptyList(),
                 isScraping = true,
                 statusText = "Finding streams for you...",
+                selectedSource = null,
             )
         }
 
         scrapeJob = viewModelScope.launch {
             val linkCallback = SafePluginInvoker.wrapCallback("LinkCallback") { link: ExtractorLink ->
                 AppLogger.i("Plugin:${provider.name}", "Extracted link: ${link.name} (quality=${link.quality}, source=${link.source}) -> ${link.url}")
+                com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.addLinks(cacheKeys, listOf(link))
                 updateState {
                     val newLinks = com.lagradost.cloudstream3.desktop.player.QualityDataHelper.sortLinks(links + link)
                     val text = "Found ${newLinks.size} stream${if (newLinks.size == 1) "" else "s"}..."
@@ -95,10 +137,29 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                 }
             }
 
-            val cleanImdb = if (dataUrl.startsWith("tt", ignoreCase = true)) dataUrl.substringBefore(":") else null
-            val parts = if (dataUrl.startsWith("tt", ignoreCase = true)) dataUrl.split(":") else emptyList()
-            val season = parts.getOrNull(1)?.toIntOrNull()
-            val episode = parts.getOrNull(2)?.toIntOrNull()
+            val subCallback = SafePluginInvoker.wrapCallback("SubtitleCallback") { sub: SubtitleFile ->
+                val cleanUrl = sub.url.trim()
+                if (cleanUrl.isNotBlank()) {
+                    val cleanSub = sub.copy(url = cleanUrl, lang = sub.lang.trim())
+                    AppLogger.i("Plugin:${provider.name}", "Extracted subtitle: [${cleanSub.lang}] ${cleanSub.url}")
+                    com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.addLinks(cacheKeys, emptyList(), listOf(cleanSub))
+                    updateState { copy(subtitles = (subtitles + cleanSub).distinctBy { it.url.trim().lowercase() }) }
+                }
+            }
+
+            val lastNum = parts.lastOrNull()?.toIntOrNull()
+            val secondLastNum = if (parts.size >= 3) {
+                parts[parts.size - 2].toIntOrNull()?.takeIf { it in 1..200 }
+            } else null
+
+            val (parsedSeason, parsedEpisode) = when {
+                lastNum != null && secondLastNum != null -> secondLastNum to lastNum
+                lastNum != null && secondLastNum == null -> 1 to lastNum
+                else -> null to null
+            }
+            val season = seasonParam ?: parsedSeason
+            val episode = episodeParam ?: parsedEpisode
+            val isSeries = isSeriesParam ?: (season != null || episode != null)
 
             val isMeta = provider.providerType == ProviderType.MetaProvider || provider.name.equals("Stremio", ignoreCase = true)
             if (isMeta) {
@@ -106,13 +167,19 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                     imdbId = cleanImdb,
                     season = season,
                     episode = episode,
-                    title = null,
+                    title = title,
+                    mediaId = dataUrl,
+                    isSeries = isSeries,
+                    onSubtitle = { subCallback(it) },
                     onLink = { linkCallback(it) },
                 )
                 val finalLinks = uiState.value.links
                 val finalText = when {
                     finalLinks.isEmpty() -> "No streams found for this title."
                     else -> "Ready — ${finalLinks.size} stream${if (finalLinks.size == 1) "" else "s"} available."
+                }
+                if (finalLinks.isNotEmpty()) {
+                    com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.set(cacheKeys, finalLinks, uiState.value.subtitles)
                 }
                 AppLogger.i("Plugin:${provider.name}", "Stream addon querying complete: ${finalLinks.size} streams")
                 updateState { copy(isScraping = false, statusText = finalText) }
@@ -124,7 +191,10 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                     imdbId = cleanImdb,
                     season = season,
                     episode = episode,
-                    title = null,
+                    title = title,
+                    mediaId = dataUrl,
+                    isSeries = isSeries,
+                    onSubtitle = { subCallback(it) },
                     onLink = { linkCallback(it) },
                 )
             }
@@ -140,14 +210,7 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                 provider.loadLinks(
                     data = dataUrl,
                     isCasting = false,
-                    subtitleCallback = SafePluginInvoker.wrapCallback("SubtitleCallback") { sub: SubtitleFile ->
-                        val cleanUrl = sub.url.trim()
-                        if (cleanUrl.isNotBlank()) {
-                            val cleanSub = sub.copy(url = cleanUrl, lang = sub.lang.trim())
-                            AppLogger.i("Plugin:${provider.name}", "Extracted subtitle: [${cleanSub.lang}] ${cleanSub.url}")
-                            updateState { copy(subtitles = (subtitles + cleanSub).distinctBy { it.url.trim().lowercase() }) }
-                        }
-                    },
+                    subtitleCallback = subCallback,
                     callback = linkCallback,
                 )
             }
@@ -157,6 +220,9 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                 val finalText = when {
                     finalLinks.isEmpty() -> "No streams found for this title."
                     else -> "Ready — ${finalLinks.size} stream${if (finalLinks.size == 1) "" else "s"} available."
+                }
+                if (finalLinks.isNotEmpty()) {
+                    com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.set(cacheKeys, finalLinks, uiState.value.subtitles)
                 }
                 AppLogger.i("Plugin:${provider.name}", "Scraping complete: ${finalLinks.size} streams, ${uiState.value.subtitles.size} subtitles")
                 updateState { copy(isScraping = false, statusText = finalText) }
@@ -170,6 +236,7 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
                 } else {
                     val finalLinks = uiState.value.links
                     if (finalLinks.isNotEmpty()) {
+                        com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.set(cacheKeys, finalLinks, uiState.value.subtitles)
                         // Timeout fired after links were already delivered via callback — not an error.
                         val text = "Ready — ${finalLinks.size} stream${if (finalLinks.size == 1) "" else "s"} available."
                         AppLogger.d("Plugin:${provider.name}", "Scrape timed out but ${finalLinks.size} links already found — suppressing error")

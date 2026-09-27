@@ -63,6 +63,7 @@ class SettingsViewModel : BaseMviViewModel<SettingsUiState, SettingsUiEvent, Set
             val maxConcurrent = DesktopDataStore.getKey<Float>(DesktopDataStore.PREF_DOWNLOAD_MAX_CONCURRENT) ?: 2f
             val subBold = DesktopDataStore.getKey<String>(PlayerConfig.PREF_SUB_BOLD) ?: "no"
             val subItalic = DesktopDataStore.getKey<String>(PlayerConfig.PREF_SUB_ITALIC) ?: "no"
+            val dohProvider = DesktopDataStore.getKey<Int>(NetworkConfig.PREF_DOH_PROVIDER) ?: 0
             updateState {
                 copy(
                     downloadPath = initialDownloadPath,
@@ -71,6 +72,9 @@ class SettingsViewModel : BaseMviViewModel<SettingsUiState, SettingsUiEvent, Set
                         DesktopDataStore.PREF_ALLOW_CF_BYPASS to cfEnabled,
                         DesktopDataStore.PREF_P2P_ENABLED to p2pEnabled,
                         PlayerConfig.PREF_AUDIO_NORMALIZATION to audioNorm,
+                    ),
+                    intSettings = intSettings + mapOf(
+                        NetworkConfig.PREF_DOH_PROVIDER to dohProvider,
                     ),
                     floatSettings = floatSettings + mapOf(
                         PlayerConfig.PREF_AUDIO_DELAY to audioDelay,
@@ -102,6 +106,14 @@ class SettingsViewModel : BaseMviViewModel<SettingsUiState, SettingsUiEvent, Set
                 updateState { copy(booleanSettings = booleanSettings + (event.key to event.value)) }
                 viewModelScope.launch(Dispatchers.IO) {
                     DesktopDataStore.setKey(event.key, event.value)
+
+                    if (event.key == NetworkConfig.PREF_DOH_AUTO_FALLBACK) {
+                        try {
+                            NetworkConfig.updateGlobalNetworkClients()
+                        } catch (e: Exception) {
+                            com.lagradost.common.logging.AppLogger.e("Network Reload Error", e)
+                        }
+                    }
 
                     if (event.key.startsWith("DISCORD_RPC")) {
                         try {

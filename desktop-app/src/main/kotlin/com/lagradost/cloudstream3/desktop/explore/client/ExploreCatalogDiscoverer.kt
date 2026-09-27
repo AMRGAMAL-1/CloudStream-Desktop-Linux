@@ -68,6 +68,7 @@ object ExploreCatalogDiscoverer {
                     }
 
                     val posterShape = cat["posterShape"]?.asText()?.takeIf { it.isNotBlank() }
+                    val queryParams = StremioTransport.getQueryParams(addon.manifestUrl)
 
                     // Base catalog shelf (all genres / default)
                     list.add(
@@ -81,6 +82,7 @@ object ExploreCatalogDiscoverer {
                             genres = genres,
                             supportsSearch = supportsSearch,
                             posterShape = posterShape,
+                            queryParams = queryParams,
                         )
                     )
                 }

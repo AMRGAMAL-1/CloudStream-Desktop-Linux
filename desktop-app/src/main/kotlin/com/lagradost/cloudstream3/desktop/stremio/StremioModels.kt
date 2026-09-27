@@ -109,6 +109,7 @@ data class StremioStreamItem(
     @JsonProperty("infoHash") val infoHash: String? = null,
     @JsonProperty("fileIdx") val fileIdx: Int? = null,
     @JsonProperty("behaviorHints") val behaviorHints: StremioStreamBehaviorHints? = null,
+    @JsonProperty("subtitles") val subtitles: List<StremioSubtitleItem>? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)

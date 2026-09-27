@@ -47,7 +47,8 @@ enum class LeafTab(val title: String, val icon: androidx.compose.ui.graphics.vec
     NETWORK("Network & DNS", Icons.Outlined.Router),
     DEVELOPER("Developer & Logs", Icons.Outlined.Terminal),
     ADVANCED("Advanced & Storage", Icons.Outlined.FolderOpen),
-    ABOUT("About & Updates", Icons.Outlined.Info),
+    UPDATES("Updates", Icons.Outlined.SystemUpdateAlt),
+    ABOUT("About", Icons.Outlined.Info),
 
     // Compatibility aliases for SettingsSearchIndex and legacy references
     THEME("Theme & Colors", Icons.Outlined.Palette),
@@ -100,6 +101,7 @@ internal val MAIN_NAV_ITEMS: List<LeafTab> = listOf(
 )
 
 internal val BOTTOM_NAV_ITEMS: List<LeafTab> = listOf(
+    LeafTab.UPDATES,
     LeafTab.ABOUT,
 )
 
@@ -347,7 +349,8 @@ fun ComposeSettingsScreen(
                                 LeafTab.ADDONS         -> SettingsExtensions(onNavigate = onNavigate)
                                 LeafTab.NETWORK        -> SettingsNetworkScreen(viewModel = settingsViewModel)
                                 LeafTab.DEVELOPER      -> SettingsDeveloper(viewModel = settingsViewModel)
-                                LeafTab.ABOUT          -> SettingsAboutAndUpdates(viewModel = settingsViewModel)
+                                LeafTab.UPDATES        -> SettingsUpdatesScreen(viewModel = settingsViewModel)
+                                LeafTab.ABOUT          -> SettingsAboutScreen()
                                 LeafTab.THEME          -> SettingsAppearanceThemeScreen()
                                 LeafTab.LAYOUT         -> SettingsAppearanceLayoutScreen(onNavigateToSubScreen = { activeSubScreen = it })
                                 LeafTab.DETAILS        -> SettingsDetailsSectionsScreen()

@@ -193,12 +193,6 @@ fun ExploreScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(hazeSourceModifier)
-                .onPointerEvent(PointerEventType.Scroll) {
-                    focusManager.clearFocus()
-                    if (uiState.searchQuery.isNotBlank()) {
-                        viewModel.onEvent(ExploreUiEvent.ClearSearchQuery)
-                    }
-                }
         ) {
             if (heroBackgroundBlurEnabled && currentHeroImageUrl != null) {
             androidx.compose.animation.Crossfade(
@@ -582,11 +576,13 @@ private fun ExploreHeaderControls(
         )
     }
 
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = dockPaddingStart, end = dockPaddingEnd)
             .height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         val drilledCat = uiState.drilledCatalog
         val drilledPlat = uiState.drilledPlatform
@@ -596,7 +592,7 @@ private fun ExploreHeaderControls(
         // ── Left: Floating Navigation Island ──
         Surface(
             modifier = Modifier
-                .align(Alignment.CenterStart)
+                .weight(1f, fill = false)
                 .height(46.dp)
                 .shadow(
                     elevation = 10.dp,
@@ -856,7 +852,9 @@ private fun ExploreHeaderControls(
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Row(
-                            modifier = Modifier.padding(2.dp),
+                            modifier = Modifier
+                                .padding(2.dp)
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -890,7 +888,7 @@ private fun ExploreHeaderControls(
             }
         }
 
-        // ── Mid: Centered Floating Search Island ──
+        // ── Right: Floating Search Island ──
         ExploreSearchField(
             query = uiState.searchQuery,
             onQueryChange = { viewModel.onEvent(ExploreUiEvent.UpdateSearchQuery(it)) },
@@ -898,7 +896,7 @@ private fun ExploreHeaderControls(
             searchResults = uiState.searchResults,
             isLiveSearching = uiState.isLiveSearching,
             onItemClick = { item -> viewModel.onEvent(ExploreUiEvent.OpenProviderPicker(item)) },
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier.padding(start = 12.dp),
         )
     }
 }

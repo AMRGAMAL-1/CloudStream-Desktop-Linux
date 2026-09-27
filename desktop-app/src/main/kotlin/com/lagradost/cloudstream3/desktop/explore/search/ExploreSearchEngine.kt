@@ -356,7 +356,10 @@ object ExploreSearchEngine {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8").replace("+", "%20")
             val cleanBase = catalog.addonBaseUrl.trimEnd('/')
-            val url = "$cleanBase/catalog/${catalog.type}/${catalog.id}/search=$encodedQuery.json"
+            val querySuffix = if (catalog.queryParams.isNotBlank()) {
+                if (catalog.queryParams.startsWith("?")) catalog.queryParams else "?${catalog.queryParams}"
+            } else ""
+            val url = "$cleanBase/catalog/${catalog.type}/${catalog.id}/search=$encodedQuery.json$querySuffix"
 
             val response = app.get(url, timeout = 5000L)
             val root = mapper.readTree(response.text)

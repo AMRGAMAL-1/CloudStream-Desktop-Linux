@@ -659,13 +659,18 @@ class DetailsViewModel(
             val hasAnimeDualCast = uiState.value.enrichedActors?.any { it.voiceActor != null } == true
             val effectiveActors = if (hasAnimeDualCast) uiState.value.enrichedActors else (seasonCast ?: uiState.value.enrichedActors ?: response?.actors)
 
+            val candidateKeys = listOfNotNull(data.second, linkHistory.episodeId, linkHistory.showUrl, linkHistory.parentId).filter { it.isNotBlank() }.distinct()
+            val cached = candidateKeys.firstNotNullOfOrNull { com.lagradost.cloudstream3.desktop.ui.screens.player.LinkCache.get(it) }
+            val linksToPass = cached?.links ?: emptyList()
+            val subsToPass = cached?.subtitles ?: emptyList()
+
             sendEffect(
                 DetailsUiEffect.NavigateToPlayer(
                     com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(
-                        links = emptyList(),
+                        links = linksToPass,
                         initialIndex = 0,
                         title = epTitle,
-                        subtitles = emptyList(),
+                        subtitles = subsToPass,
                         startPositionMs = resumeMs,
                         history = linkHistory,
                         loadResponse = response,

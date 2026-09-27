@@ -41,7 +41,11 @@ import com.lagradost.cloudstream3.desktop.ui.screens.details.*
 import com.lagradost.cloudstream3.desktop.ui.screens.details.contract.DetailsUiEffect
 import com.lagradost.cloudstream3.desktop.ui.screens.details.contract.DetailsUiEvent
 import com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig
+import com.lagradost.cloudstream3.desktop.ui.components.LocalDesktopTheme
 import com.lagradost.player.impl.PlayerLinkHandler
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.graphicsLayer
@@ -179,8 +183,16 @@ fun ComposeDetailsScreen(
             baseBgUrl
         }
 
+        val hazeState = remember { HazeState() }
+        val isAmoled = LocalDesktopTheme.current.isAmoled
+
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            if (heroBackgroundBlurEnabled && activeBgUrl != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .hazeSource(state = hazeState),
+            ) {
+                if (heroBackgroundBlurEnabled && activeBgUrl != null) {
                 androidx.compose.animation.Crossfade(
                     targetState = activeBgUrl,
                     animationSpec = androidx.compose.animation.core.tween(2000),
@@ -325,62 +337,75 @@ fun ComposeDetailsScreen(
                     }
                 },
             )
+        }
 
-            AnimatedVisibility(
-                visible = isPanelOpen,
-                enter = fadeIn(animationSpec = tween(300)),
-                exit = fadeOut(animationSpec = tween(300)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.4f))
-                        .clickable { viewModel.onEvent(DetailsUiEvent.OnCloseLinksPanel) },
-                )
-            }
+        AnimatedVisibility(
+            visible = isPanelOpen,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (isAmoled) 0.65f else 0.45f))
+                    .clickable { viewModel.onEvent(DetailsUiEvent.OnCloseLinksPanel) },
+            )
+        }
 
-            if (activeLinkData != null) {
-                val panelWidth = minOf(620.dp, maxWidth * 0.95f)
-                val offsetX by androidx.compose.animation.core.animateDpAsState(
-                    targetValue = if (isPanelOpen) 0.dp else panelWidth + 20.dp,
-                    animationSpec = tween(300),
-                )
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .offset(x = offsetX)
-                        .fillMaxHeight()
-                        .width(panelWidth)
-                        .shadow(24.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xFF0C0C14).copy(alpha = 0.95f),
-                                    Color(0xFF161622).copy(alpha = 0.98f),
-                                ),
+        if (activeLinkData != null) {
+            val panelWidth = minOf(640.dp, maxWidth * 0.95f)
+            val drawerShape = RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp)
+            val offsetX by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (isPanelOpen) 0.dp else panelWidth + 20.dp,
+                animationSpec = tween(300),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = offsetX)
+                    .fillMaxHeight()
+                    .width(panelWidth)
+                    .shadow(28.dp, shape = drawerShape, spotColor = Color.Black.copy(alpha = 0.5f))
+                    .clip(drawerShape)
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.18f),
+                                Color.White.copy(alpha = 0.05f),
                             ),
                         ),
-                ) {
-                    activeLinkData.let { (linkProvider, linkUrl, linkHistory) ->
-                        val currentSeason = linkHistory.season ?: uiState.selectedSeason
-                        val seasonCast = if (currentSeason != null && currentSeason > 0) {
-                            uiState.seasonCredits[currentSeason]
-                        } else null
-                        val hasAnimeDualCast = uiState.enrichedActors?.any { it.voiceActor != null } == true
-                        val effectiveActors = if (hasAnimeDualCast) uiState.enrichedActors else (seasonCast ?: uiState.enrichedActors ?: response?.actors)
-                        LinksSidePanel(
-                            provider = linkProvider,
-                            dataUrl = linkUrl,
-                            history = linkHistory,
-                            loadResponse = response, // Passed from ComposeDetailsScreen
-                            enrichedActors = effectiveActors,
-                            enrichedLogoUrl = uiState.enrichedLogoUrl,
-                            enrichedBackdropUrl = uiState.enrichedBackdropUrl,
-                            onClose = { viewModel.onEvent(DetailsUiEvent.OnCloseLinksPanel) },
-                        )
+                        shape = drawerShape,
+                    )
+                    .hazeEffect(state = hazeState) {
+                        blurRadius = 40.dp
+                        backgroundColor = if (isAmoled) Color(0xFF09090E) else Color(0xFF0D0D17)
                     }
+                    .background(
+                        if (isAmoled) Color(0xFF09090E).copy(alpha = 0.95f)
+                        else Color(0xFF0D0D17).copy(alpha = 0.70f),
+                    ),
+            ) {
+                activeLinkData.let { (linkProvider, linkUrl, linkHistory) ->
+                    val currentSeason = linkHistory.season ?: uiState.selectedSeason
+                    val seasonCast = if (currentSeason != null && currentSeason > 0) {
+                        uiState.seasonCredits[currentSeason]
+                    } else null
+                    val hasAnimeDualCast = uiState.enrichedActors?.any { it.voiceActor != null } == true
+                    val effectiveActors = if (hasAnimeDualCast) uiState.enrichedActors else (seasonCast ?: uiState.enrichedActors ?: response?.actors)
+                    LinksSidePanel(
+                        provider = linkProvider,
+                        dataUrl = linkUrl,
+                        history = linkHistory,
+                        loadResponse = response, // Passed from ComposeDetailsScreen
+                        enrichedActors = effectiveActors,
+                        enrichedLogoUrl = uiState.enrichedLogoUrl,
+                        enrichedBackdropUrl = uiState.enrichedBackdropUrl,
+                        onClose = { viewModel.onEvent(DetailsUiEvent.OnCloseLinksPanel) },
+                    )
                 }
             }
+        }
         }
     }
 }

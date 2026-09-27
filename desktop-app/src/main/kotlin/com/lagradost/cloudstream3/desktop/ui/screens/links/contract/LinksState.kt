@@ -17,6 +17,7 @@ data class LinksUiState(
     val currentPlayingUrl: String? = null,
     val selectedQuality: Int? = null,
     val selectedFormat: StreamFormatFilter = StreamFormatFilter.ALL,
+    val selectedSource: String? = null,
     val isP2pEnabled: Boolean = false,
     val embeddedError: String? = null,
     val linkToDownload: ExtractorLink? = null,

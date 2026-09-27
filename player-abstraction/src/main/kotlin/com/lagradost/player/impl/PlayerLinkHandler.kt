@@ -71,7 +71,13 @@ object PlayerLinkHandler {
             }
 
             val isLocalPath = (url.length >= 2 && url[1] == ':') || url.startsWith("/") || url.startsWith("\\")
-            if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true) && !isLocalPath) {
+            val isMagnet = url.startsWith("magnet:", ignoreCase = true) ||
+                link.type == ExtractorLinkType.TORRENT ||
+                link.type == ExtractorLinkType.MAGNET ||
+                url.contains("xt=urn:btih:", ignoreCase = true) ||
+                ((url.length == 40 || url.length == 32) && url.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' })
+
+            if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true) && !isLocalPath && !isMagnet) {
                 return Result.failure(IllegalArgumentException("Unsupported stream URL scheme: ${url.take(12)}..."))
             }
 
@@ -115,8 +121,9 @@ object PlayerLinkHandler {
 
             // Route all remote streams through LocalStreamProxy so OkHttp handles headers, cookies,
             // and connection management (mirroring Android CS3IPlayer / ExoPlayer with OkHttpDataSource).
-            // Local paths and YouTube/yt-dlp streams bypass proxying.
-            val useProxy = !isLocalPath && !isYouTube
+            // Local paths, YouTube/yt-dlp, torrent/magnet links, and loopback endpoints bypass proxying.
+            val isLoopback = url.contains("127.0.0.1") || url.contains("localhost", ignoreCase = true)
+            val useProxy = !isLocalPath && !isYouTube && !isMagnet && !isLoopback
 
             val provider = com.lagradost.cloudstream3.APIHolder.getApiFromNameNull(link.source)
             val videoInterceptor = try {
@@ -170,8 +177,8 @@ object PlayerLinkHandler {
                     headers = finalHeaders,
                     streamKind = kind,
                     // Avoid Windows command-line limits and escaping issues for long signed URLs.
-                    // YouTube URLs must bypass url files so MPV's ytdl_hook can directly inspect the URL.
-                    useUrlFile = !isYouTube && !useProxy && (finalUrl.length > 1800 || finalUrl.count { it == '&' } > 8),
+                    // YouTube URLs, torrent/magnet links, and loopback endpoints bypass url files.
+                    useUrlFile = !isYouTube && !useProxy && !isMagnet && !isLoopback && (finalUrl.length > 1800 || finalUrl.count { it == '&' } > 8),
                     audioTracks = finalAudioTracks,
                     proxySessionId = finalSessionId,
                     clearKeyHex = clearKeyHex,
@@ -436,6 +443,13 @@ object PlayerLinkHandler {
     }
 
     fun shouldPreferMpv(link: ExtractorLink): Boolean {
+        if (link.type == ExtractorLinkType.TORRENT ||
+            link.type == ExtractorLinkType.MAGNET ||
+            link.url.startsWith("magnet:", ignoreCase = true) ||
+            link.url.contains("xt=urn:btih:", ignoreCase = true)
+        ) {
+            return true
+        }
         val headers = buildHeaderMap(link)
         val hasExtraHeaders = headers.keys.any { key ->
             !key.equals("user-agent", ignoreCase = true) &&

@@ -34,6 +34,7 @@ class SearchViewModel(
     private var searchJob: kotlinx.coroutines.Job? = null
     private var lastSearchedQuery: String = ""
     private val searchSemaphore = kotlinx.coroutines.sync.Semaphore(8)
+    private var suppressSuggestions: Boolean = false
 
     init {
         // Collect real providers reactively
@@ -61,7 +62,7 @@ class SearchViewModel(
             updateState { copy(searchHistory = history) }
         }
 
-        // Debounced search query (500ms to prevent Cloudflare HTTP 429 rate limits on typing)
+        // Debounced search query (500ms to prevent rate limits on typing)
         viewModelScope.launch {
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             uiState.map { it.searchQuery }
@@ -86,9 +87,13 @@ class SearchViewModel(
                 .debounce(200)
                 .collectLatest { query ->
                     val trimmed = query.trim()
+                    if (suppressSuggestions) {
+                        updateState { copy(showSuggestions = false) }
+                        return@collectLatest
+                    }
                     if (trimmed.length >= 2) {
                         val suggestions = SearchSuggestionApi.getSuggestions(trimmed, uiState.value.searchHistory)
-                        updateState { copy(searchSuggestions = suggestions, showSuggestions = suggestions.isNotEmpty()) }
+                        updateState { copy(searchSuggestions = suggestions, showSuggestions = suggestions.isNotEmpty() && !suppressSuggestions) }
                     } else {
                         updateState { copy(searchSuggestions = emptyList(), showSuggestions = false) }
                     }
@@ -105,8 +110,12 @@ class SearchViewModel(
 
     override fun handleEvent(event: SearchUiEvent) {
         when (event) {
-            is SearchUiEvent.OnSearchQueryChange -> updateState { copy(searchQuery = event.query) }
+            is SearchUiEvent.OnSearchQueryChange -> {
+                suppressSuggestions = false
+                updateState { copy(searchQuery = event.query) }
+            }
             is SearchUiEvent.OnSearch -> {
+                suppressSuggestions = true
                 updateState { copy(showSuggestions = false) }
                 addToHistory(uiState.value.searchQuery)
                 search(force = true)
@@ -114,16 +123,21 @@ class SearchViewModel(
             is SearchUiEvent.OnClearSearch -> {
                 searchJob?.cancel()
                 lastSearchedQuery = ""
+                suppressSuggestions = true
                 updateState { copy(searchQuery = "", searchResultsGrouped = null, isLoadingSearch = false, searchSuggestions = emptyList(), showSuggestions = false) }
             }
             is SearchUiEvent.OnSelectSuggestion -> {
+                suppressSuggestions = true
                 updateState { copy(searchQuery = event.query, showSuggestions = false) }
                 if (event.submitSearch) {
                     addToHistory(event.query)
                     search(force = true)
                 }
             }
-            is SearchUiEvent.OnDismissSuggestions -> updateState { copy(showSuggestions = false) }
+            is SearchUiEvent.OnDismissSuggestions -> {
+                suppressSuggestions = true
+                updateState { copy(showSuggestions = false) }
+            }
             is SearchUiEvent.OnToggleGlobalSearch -> {
                 updateState { copy(isGlobalSearchEnabled = event.enabled, showSuggestions = false) }
                 if (uiState.value.searchQuery.isNotBlank()) {

@@ -70,6 +70,7 @@ object UnifiedUpdateManager {
     private var hasCheckedInitial = false
 
     fun getTorrServerInstalledVersion(): String {
+        if (!com.lagradost.cloudstream3.desktop.torrent.DesktopTorrServerBinary().isInstalled()) return "Not Installed"
         return DesktopDataStore.getKey<String>(PREF_TORRSERVER_VERSION) ?: DEFAULT_TORRSERVER_VERSION
     }
 
@@ -78,6 +79,7 @@ object UnifiedUpdateManager {
     }
 
     fun getYtDlpInstalledVersion(): String {
+        if (!com.lagradost.cloudstream3.desktop.player.ytdl.DesktopYtDlpBinary().isInstalled()) return "Not Installed"
         return DesktopDataStore.getKey<String>(PREF_YTDL_VERSION) ?: DEFAULT_YTDL_VERSION
     }
 

@@ -181,7 +181,14 @@ class TmdbMirrorInterceptor : okhttp3.Interceptor {
 
 object NetworkConfig {
     const val PREF_DOH_PROVIDER = "doh_provider"
+    const val PREF_DOH_AUTO_FALLBACK = "doh_auto_fallback"
     const val PREF_TMDB_API_MIRROR = "tmdb_api_mirror"
+
+    private val dohFailureCount = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile
+    private var dohDegradedUntilMs: Long = 0L
+    private const val DOH_FAILURE_THRESHOLD = 3
+    private const val DOH_DEGRADED_COOLDOWN_MS = 60_000L // 60 seconds cooldown
 
     @Volatile
     private var _imageClient: okhttp3.OkHttpClient? = null
@@ -209,6 +216,9 @@ object NetworkConfig {
      * using the current DNS over HTTPS configuration from the DesktopDataStore.
      */
     fun updateGlobalNetworkClients() {
+        dohFailureCount.set(0)
+        dohDegradedUntilMs = 0L
+
         val providerIndex = DesktopDataStore.getKey<Int>(PREF_DOH_PROVIDER) ?: 0
         val provider = DohProvider.values().getOrNull(providerIndex) ?: DohProvider.NONE
 
@@ -239,17 +249,57 @@ object NetworkConfig {
             baseBuilder.addInterceptor(CloudflareKiller(cookieJar))
         }
 
-        // CRITICAL: Strip all IPv6 addresses from DNS responses.
-        // Windows frequently advertises IPv6 capability but many ISPs/routers silently
-        // blackhole IPv6 traffic, causing OkHttp's Happy Eyeballs to hang for 30+ seconds
-        // on many hosts before falling back to IPv4.
+        // CRITICAL: Strip all IPv6 addresses from DNS responses and implement
+        // an anti-flapping circuit breaker for DoH resolution.
         try {
             val upstreamDns = baseBuilder.build().dns
+            val autoFallback = DesktopDataStore.getKey<Boolean>(PREF_DOH_AUTO_FALLBACK) ?: true
+
             baseBuilder.dns(object : okhttp3.Dns {
                 override fun lookup(hostname: String): List<java.net.InetAddress> {
-                    val addresses = upstreamDns.lookup(hostname)
-                    val ipv4Only = addresses.filter { it is java.net.Inet4Address }
-                    return ipv4Only.ifEmpty { addresses }
+                    // System default or fallback explicitly disabled by user
+                    if (provider == DohProvider.NONE || !autoFallback) {
+                        val addresses = upstreamDns.lookup(hostname)
+                        val ipv4Only = addresses.filter { it is java.net.Inet4Address }
+                        return ipv4Only.ifEmpty { addresses }
+                    }
+
+                    // Anti-Flapping Circuit Breaker:
+                    // If in degraded state, bypass DoH entirely to prevent request hangs and IP jitter
+                    val now = System.currentTimeMillis()
+                    if (now < dohDegradedUntilMs) {
+                        val sysAddresses = okhttp3.Dns.SYSTEM.lookup(hostname)
+                        val ipv4Only = sysAddresses.filter { it is java.net.Inet4Address }
+                        return ipv4Only.ifEmpty { sysAddresses }
+                    }
+
+                    // DoH is healthy or cooldown period has ended (probing DoH)
+                    return try {
+                        val addresses = upstreamDns.lookup(hostname)
+                        val ipv4Only = addresses.filter { it is java.net.Inet4Address }
+                        // Reset failure counter on successful DoH query
+                        if (dohFailureCount.get() > 0) {
+                            dohFailureCount.set(0)
+                            dohDegradedUntilMs = 0L
+                            AppLogger.i("Network:DNS", "DoH connection restored. Circuit breaker reset.")
+                        }
+                        ipv4Only.ifEmpty { addresses }
+                    } catch (dohEx: Exception) {
+                        val failures = dohFailureCount.incrementAndGet()
+                        if (failures >= DOH_FAILURE_THRESHOLD) {
+                            dohDegradedUntilMs = System.currentTimeMillis() + DOH_DEGRADED_COOLDOWN_MS
+                            AppLogger.w("Network:DNS", "DoH failed $failures consecutive times (${dohEx.message}). Activating 60s System DNS cooldown.")
+                        } else {
+                            AppLogger.w("Network:DNS", "DoH lookup failed for '$hostname' (${dohEx.message}). Falling back to System DNS ($failures/$DOH_FAILURE_THRESHOLD).")
+                        }
+                        try {
+                            val sysAddresses = okhttp3.Dns.SYSTEM.lookup(hostname)
+                            val ipv4Only = sysAddresses.filter { it is java.net.Inet4Address }
+                            ipv4Only.ifEmpty { sysAddresses }
+                        } catch (sysEx: Exception) {
+                            throw dohEx
+                        }
+                    }
                 }
             })
         } catch (e: Exception) {

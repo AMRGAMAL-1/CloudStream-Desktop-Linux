@@ -5,7 +5,15 @@ import com.lagradost.cloudstream3.desktop.ui.base.UiEvent
 import com.lagradost.common.storage.WatchHistory
 
 sealed interface LinksUiEvent : UiEvent {
-    data class OnScrape(val provider: MainAPI, val dataUrl: String) : LinksUiEvent
+    data class OnScrape(
+        val provider: MainAPI,
+        val dataUrl: String,
+        val title: String? = null,
+        val forceRefresh: Boolean = false,
+        val isSeries: Boolean? = null,
+        val season: Int? = null,
+        val episode: Int? = null,
+    ) : LinksUiEvent
     data object OnCancelScrape : LinksUiEvent
     data class OnStatusTextChanged(val text: String) : LinksUiEvent
     data class OnSaveWatchPosition(val history: WatchHistory, val positionMs: Long, val durationMs: Long) : LinksUiEvent
@@ -23,6 +31,7 @@ sealed interface LinksUiEvent : UiEvent {
     ) : LinksUiEvent
     data class OnFilterQuality(val quality: Int?) : LinksUiEvent
     data class OnFilterFormat(val format: com.lagradost.cloudstream3.desktop.ui.screens.StreamFormatFilter) : LinksUiEvent
+    data class OnFilterSource(val source: String?) : LinksUiEvent
     data class OnPlayerLaunchFinished(val error: String? = null) : LinksUiEvent
     data class OnP2pEnabledChanged(val enabled: Boolean) : LinksUiEvent
     data class OnSetEmbeddedError(val error: String?) : LinksUiEvent

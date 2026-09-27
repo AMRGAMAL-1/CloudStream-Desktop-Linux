@@ -155,6 +155,16 @@ class EmbeddedPlayerViewModel(
                 }
             }
         }
+
+        val currentLinksToCache = (uiState.value.nextEpisodeLinks.ifEmpty { currentData?.links.orEmpty() }).distinctBy { it.url }
+        val currentSubsToCache = (uiState.value.nextEpisodeSubtitles.ifEmpty { currentData?.subtitles.orEmpty() }).distinctBy { it.url }
+        if (currentData != null && currentLinksToCache.isNotEmpty()) {
+            val epId = currentData.history.episodeId
+            val showUrl = currentData.loadResponse?.url ?: currentData.history.showUrl
+            val keys = listOfNotNull(epId, showUrl, currentData.history.parentId).distinct()
+            LinkCache.addLinks(keys, currentLinksToCache, currentSubsToCache)
+        }
+
         playerState.detachMpv()
 
         super.dispose()
@@ -672,10 +682,11 @@ class EmbeddedPlayerViewModel(
                 sendEffect(PlayerUiEffect.ClosePlayer)
             }
         } else if (hydratedData.links.isNotEmpty()) {
-            // Links already provided at launch (e.g. direct open) — pick immediately
-            val best = pickBestActiveLink(hydratedData.links, emptySet(), hydratedData.startPositionMs)
-            if (best != null) {
-                updatePhase(PlayerPhase.Probing(best, false))
+            // Links already provided at launch — respect user's explicitly selected stream if specified
+            val selected = hydratedData.links.getOrNull(hydratedData.initialIndex)
+                ?: pickBestActiveLink(hydratedData.links, emptySet(), hydratedData.startPositionMs)
+            if (selected != null) {
+                updatePhase(PlayerPhase.Probing(selected, false))
             } else {
                 updatePhase(PlayerPhase.Idle)
             }
@@ -1078,7 +1089,12 @@ class EmbeddedPlayerViewModel(
             current.enrichedActors
         }
 
-        val cached = LinkCache.get(targetEpisodeId)
+        val showUrl = current.loadResponse?.url ?: current.history.showUrl
+        val parentId = current.history.parentId
+        val episodeData = targetEpisodeData?.data
+        val candidateKeys = listOfNotNull(targetEpisodeId, episodeData, showUrl, parentId).filter { it.isNotBlank() }.distinct()
+
+        val cached = candidateKeys.firstNotNullOfOrNull { LinkCache.get(it) }
         if (cached != null && cached.links.isNotEmpty()) {
             AppLogger.i("EmbeddedPlayerViewModel:${provider.name}", "Using cached links for episode: $targetEpisodeId")
             val sortedLinks = sortLinks(cached.links, startPos)
@@ -1210,8 +1226,10 @@ class EmbeddedPlayerViewModel(
                             copy(nextEpisodeSubtitles = newSubs, launchData = updatedLaunch)
                         }
                     }
+                    LinkCache.addLinks(candidateKeys, emptyList(), listOf(cleanSub))
                 },
                 onLink = { link ->
+                    LinkCache.addLinks(candidateKeys, listOf(link))
                     updateState {
                         if (!isScrapingLinks) return@updateState this
                         val newLinks = sortLinks(nextEpisodeLinks + link, startPos)
@@ -1263,7 +1281,7 @@ class EmbeddedPlayerViewModel(
         if (result.isSuccess) {
             val sortedLinks = sortLinks(uiState.value.nextEpisodeLinks, startPos)
             if (sortedLinks.isNotEmpty()) {
-                LinkCache.set(targetEpisodeId, sortedLinks, uiState.value.nextEpisodeSubtitles)
+                LinkCache.set(candidateKeys, sortedLinks, uiState.value.nextEpisodeSubtitles)
             }
 
             if (hasStartedPlaying.get()) {

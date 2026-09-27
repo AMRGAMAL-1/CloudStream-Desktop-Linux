@@ -152,6 +152,7 @@ class ExploreViewModel(
     init {
         viewModelScope.launch {
             StremioAddonManager.addons.collect {
+                ExploreCatalogDiscoverer.clearCache()
                 refreshCatalogs()
             }
         }
@@ -203,7 +204,7 @@ class ExploreViewModel(
             is ExploreUiEvent.CloseProviderPicker -> closeProviderPicker()
             is ExploreUiEvent.SelectProviderMatch -> selectProviderMatch(event.match)
             is ExploreUiEvent.LoadMore -> loadMore()
-            is ExploreUiEvent.RefreshCatalogs -> refreshCatalogs()
+            is ExploreUiEvent.RefreshCatalogs -> refreshCatalogs(clearCache = true)
             is ExploreUiEvent.ToggleViewMode -> toggleViewMode(event.isShelves)
             is ExploreUiEvent.DrillIntoCatalog -> drillIntoCatalog(event.catalog)
             is ExploreUiEvent.DrillIntoPlatform -> drillIntoPlatform(event.platform)
@@ -228,9 +229,13 @@ class ExploreViewModel(
         )
     }
 
-    private fun refreshCatalogs() {
+    private fun refreshCatalogs(clearCache: Boolean = false) {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch(Dispatchers.IO) {
+            if (clearCache) {
+                ExploreCatalogDiscoverer.clearCache()
+                catalogItemsCache.clear()
+            }
             val enabledAddons: List<ManagedStremioAddon> = StremioAddonManager.addons.value.filter { it.enabled }
             val discovered = mutableListOf<ManifestCatalogDescriptor>()
             val catalogDeferreds = enabledAddons.map { addon ->
@@ -942,7 +947,7 @@ class ExploreViewModel(
     private fun loadCurrentCatalog(skip: Int = 0) {
         val cat = uiState.value.selectedCatalog ?: return
         val genreArg = if (uiState.value.selectedGenre.equals("All", ignoreCase = true)) cat.genre else uiState.value.selectedGenre
-        val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${genreArg ?: "all"}_$skip"
+        val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.queryParams}_${genreArg ?: "all"}_$skip"
 
         // Instant display if already in memory
         if (skip == 0) {
@@ -1160,6 +1165,7 @@ class ExploreViewModel(
                     catalogId = cat.id,
                     genre = genreArg,
                     skip = skip,
+                    queryParams = cat.queryParams,
                 )
             }
         }
@@ -1181,7 +1187,7 @@ class ExploreViewModel(
 
         // Initialize shelves with cached items immediately if present
         val initialShelves = catalogs.map { cat ->
-            val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.genre ?: "all"}_0"
+            val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.queryParams}_${cat.genre ?: "all"}_0"
             val cached = catalogItemsCache[cacheKey]
             ExploreShelf(
                 catalog = cat,
@@ -1206,7 +1212,7 @@ class ExploreViewModel(
 
             val jobs = catalogs.mapIndexed { index, cat ->
                 launch {
-                    val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.genre ?: "all"}_0"
+                    val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.queryParams}_${cat.genre ?: "all"}_0"
                     val cached = catalogItemsCache[cacheKey]
                     if (cached != null && cached.isNotEmpty()) {
                         return@launch

@@ -26,6 +26,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -79,282 +84,314 @@ fun ComposeSearchScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         // ── Search Header ──────────────────────────────────────────────
         Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Unified container to perfectly center the search capsule and categories
-            Box(
-                modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth().zIndex(50f),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                // Unified container to perfectly center the search capsule and categories
+                Box(
+                    modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth().zIndex(50f),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    // Unified Search Bar & Plugin Selector Capsule
-                    Surface(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        // Unified Search Bar & Plugin Selector Capsule (Sleek Desktop Profile)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp).copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(14.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSearchFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.70f)
+                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            ),
+                            tonalElevation = 2.dp,
+                            shadowElevation = 4.dp,
                         ) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(start = 14.dp, end = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = if (isSearchFocused || uiState.searchQuery.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(18.dp),
+                                )
 
-                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                                if (uiState.searchQuery.isEmpty()) {
-                                    Text(
-                                        "Search movies, series, anime...",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        fontSize = 15.sp,
+                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                                    if (uiState.searchQuery.isEmpty()) {
+                                        Text(
+                                            "Search movies, series, anime...",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            fontSize = 13.5.sp,
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = uiState.searchQuery,
+                                        onValueChange = { viewModel.onEvent(SearchUiEvent.OnSearchQueryChange(it)) },
+                                        singleLine = true,
+                                        textStyle = TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Normal,
+                                        ),
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = {
+                                            viewModel.onEvent(SearchUiEvent.OnSearch)
+                                        }),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(focusRequester)
+                                            .onFocusChanged { isSearchFocused = it.isFocused }
+                                            .onKeyEvent { keyEvent ->
+                                                if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
+                                                    if (uiState.searchQuery.isNotEmpty()) {
+                                                        viewModel.onEvent(SearchUiEvent.OnClearSearch)
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                } else {
+                                                    false
+                                                }
+                                            },
                                     )
                                 }
-                                BasicTextField(
-                                    value = uiState.searchQuery,
-                                    onValueChange = { viewModel.onEvent(SearchUiEvent.OnSearchQueryChange(it)) },
-                                    singleLine = true,
-                                    textStyle = TextStyle(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Normal,
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                    keyboardActions = KeyboardActions(onSearch = {
-                                        viewModel.onEvent(SearchUiEvent.OnSearch)
-                                    }),
+
+                                AnimatedVisibility(
+                                    visible = uiState.searchQuery.isNotEmpty(),
+                                    enter = fadeIn() + scaleIn(),
+                                    exit = fadeOut() + scaleOut(),
+                                ) {
+                                    IconButton(
+                                        onClick = { viewModel.onEvent(SearchUiEvent.OnClearSearch) },
+                                        modifier = Modifier.size(24.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+
+                                // Subtle vertical separator
+                                Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(focusRequester)
-                                        .onFocusChanged { isSearchFocused = it.isFocused },
+                                        .width(1.dp)
+                                        .height(18.dp)
+                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                                )
+
+                                // Embedded Plugin Selector Chip (Compact flush pill)
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                    onClick = { showProviderDropdown = true },
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(start = 8.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        if (!isGlobalSearchEnabled && selectedProviderName != null) {
+                                            val icon = pluginIcons[selectedProviderName] ?: fuzzyMatchPluginIcon(selectedProviderName, pluginIcons)
+                                            if (icon != null) {
+                                                AsyncImage(
+                                                    model = icon,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp).clip(CircleShape).background(Color.White),
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = if (isGlobalSearchEnabled) "All Plugins" else (selectedProviderName ?: "Select Plugin"),
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            modifier = Modifier.widthIn(max = 115.dp),
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Icon(
+                                            Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Provider Selection Modal
+                        ProviderSelectionDialog(
+                            show = showProviderDropdown,
+                            onDismissRequest = { showProviderDropdown = false },
+                            providers = uiState.providers,
+                            pluginIcons = pluginIcons,
+                            selectedProviderName = selectedProviderName,
+                            selectedProviderSource = uiState.selectedProviderSource,
+                            isGlobalSearchEnabled = isGlobalSearchEnabled,
+                            providerTypeFilter = uiState.providerTypeFilter,
+                            onSelectGlobalSearch = {
+                                viewModel.onEvent(SearchUiEvent.OnToggleGlobalSearch(true))
+                                showProviderDropdown = false
+                            },
+                            onSelectProvider = { name, source ->
+                                viewModel.onEvent(SearchUiEvent.OnToggleGlobalSearch(false))
+                                viewModel.onEvent(SearchUiEvent.OnProviderSelected(name, source))
+                                showProviderDropdown = false
+                            },
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // ── Horizontal Category Filter Chips ──────────────────────────
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            item {
+                                AnimatedCategoryTab(
+                                    selected = selectedCategories.isEmpty(),
+                                    label = "All",
+                                    onClick = {
+                                        viewModel.onEvent(SearchUiEvent.OnClearCategories)
+                                    },
                                 )
                             }
 
-                            AnimatedVisibility(
-                                visible = uiState.searchQuery.isNotEmpty(),
-                                enter = fadeIn() + scaleIn(),
-                                exit = fadeOut() + scaleOut(),
-                            ) {
-                                IconButton(
-                                    onClick = { viewModel.onEvent(SearchUiEvent.OnClearSearch) },
-                                    modifier = Modifier.size(26.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Clear",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            }
-
-                            // Subtle vertical separator
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .height(22.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                            )
-
-                            // Embedded Plugin Selector Chip
-                            Surface(
-                                shape = RoundedCornerShape(18.dp),
-                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
-                                onClick = { showProviderDropdown = true },
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    if (!isGlobalSearchEnabled && selectedProviderName != null) {
-                                        val icon = pluginIcons[selectedProviderName] ?: fuzzyMatchPluginIcon(selectedProviderName, pluginIcons)
-                                        if (icon != null) {
-                                            AsyncImage(
-                                                model = icon,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp).clip(CircleShape).background(Color.White),
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = if (isGlobalSearchEnabled) "All Plugins" else (selectedProviderName ?: "Select Plugin"),
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        modifier = Modifier.widthIn(max = 120.dp),
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Icon(
-                                        Icons.Default.ArrowDropDown,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                            items(SEARCH_CATEGORIES, key = { it.first.name }) { (type, label) ->
+                                AnimatedCategoryTab(
+                                    selected = type in selectedCategories,
+                                    label = label,
+                                    onClick = { viewModel.onEvent(SearchUiEvent.OnToggleCategory(type)) },
+                                )
                             }
                         }
                     }
 
-                    // Provider Selection Modal
-                    ProviderSelectionDialog(
-                        show = showProviderDropdown,
-                        onDismissRequest = { showProviderDropdown = false },
-                        providers = uiState.providers,
-                        pluginIcons = pluginIcons,
-                        selectedProviderName = selectedProviderName,
-                        selectedProviderSource = uiState.selectedProviderSource,
-                        isGlobalSearchEnabled = isGlobalSearchEnabled,
-                        providerTypeFilter = uiState.providerTypeFilter,
-                        onSelectGlobalSearch = {
-                            viewModel.onEvent(SearchUiEvent.OnToggleGlobalSearch(true))
-                            showProviderDropdown = false
+                    // ── Floating Search Suggestions Dropdown Overlay ──────────────────────
+                    SearchSuggestionsOverlay(
+                        visible = uiState.showSuggestions && uiState.searchSuggestions.isNotEmpty() && uiState.searchQuery.isNotEmpty(),
+                        suggestions = uiState.searchSuggestions,
+                        onSelectSuggestion = { title, submit ->
+                            viewModel.onEvent(SearchUiEvent.OnSelectSuggestion(title, submitSearch = submit))
                         },
-                        onSelectProvider = { name, source ->
-                            viewModel.onEvent(SearchUiEvent.OnToggleGlobalSearch(false))
-                            viewModel.onEvent(SearchUiEvent.OnProviderSelected(name, source))
-                            showProviderDropdown = false
+                        onFillSuggestion = { title ->
+                            viewModel.onEvent(SearchUiEvent.OnSelectSuggestion(title, submitSearch = false))
+                            try { focusRequester.requestFocus() } catch (_: Exception) {}
                         },
                     )
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // ── Horizontal Category Filter Chips ──────────────────────────
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+            // ── Content Area ─────────────────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
                     ) {
-                        item {
-                            AnimatedCategoryTab(
-                                selected = selectedCategories.isEmpty(),
-                                label = "All",
-                                onClick = {
-                                    viewModel.onEvent(SearchUiEvent.OnClearCategories)
+                        if (uiState.showSuggestions) {
+                            viewModel.onEvent(SearchUiEvent.OnDismissSuggestions)
+                        }
+                    },
+            ) {
+                val hasResults = !searchResultsGrouped.isNullOrEmpty()
+                val showEmptyState = !hasResults && !isLoadingSearch
+                val showHistory = showEmptyState && uiState.searchQuery.isEmpty() && searchHistory.isNotEmpty()
+
+                if (showHistory) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Box(modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth()) {
+                            SearchHistoryView(
+                                searchHistory = searchHistory,
+                                onSelectHistoryItem = { item ->
+                                    viewModel.onEvent(SearchUiEvent.OnSearchQueryChange(item))
+                                    viewModel.onEvent(SearchUiEvent.OnSearch)
+                                },
+                                onRemoveHistoryItem = { item ->
+                                    viewModel.onEvent(SearchUiEvent.OnRemoveSearchHistoryItem(item))
+                                },
+                                onClearAll = {
+                                    viewModel.onEvent(SearchUiEvent.OnClearSearchHistory)
                                 },
                             )
                         }
-
-                        items(SEARCH_CATEGORIES, key = { it.first.name }) { (type, label) ->
-                            AnimatedCategoryTab(
-                                selected = type in selectedCategories,
-                                label = label,
-                                onClick = { viewModel.onEvent(SearchUiEvent.OnToggleCategory(type)) },
-                            )
-                        }
                     }
-                }
-
-                // ── Floating Search Suggestions Dropdown Overlay ──────────────────────
-                SearchSuggestionsOverlay(
-                    visible = uiState.showSuggestions && uiState.searchSuggestions.isNotEmpty() && uiState.searchQuery.isNotEmpty(),
-                    suggestions = uiState.searchSuggestions,
-                    onSelectSuggestion = { title, submit ->
-                        viewModel.onEvent(SearchUiEvent.OnSelectSuggestion(title, submitSearch = submit))
-                    },
-                    onFillSuggestion = { title ->
-                        viewModel.onEvent(SearchUiEvent.OnSelectSuggestion(title, submitSearch = false))
-                        try { focusRequester.requestFocus() } catch (_: Exception) {}
-                    },
-                )
-            }
-        }
-
-        // ── Content Area ─────────────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .weight(1f)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) {
-                    if (uiState.showSuggestions) {
-                        viewModel.onEvent(SearchUiEvent.OnDismissSuggestions)
-                    }
-                },
-        ) {
-            val hasResults = !searchResultsGrouped.isNullOrEmpty()
-            val showEmptyState = !hasResults && !isLoadingSearch
-            val showHistory = showEmptyState && uiState.searchQuery.isEmpty() && searchHistory.isNotEmpty()
-
-            if (showHistory) {
-                SearchHistoryView(
-                    searchHistory = searchHistory,
-                    onSelectHistoryItem = { item ->
-                        viewModel.onEvent(SearchUiEvent.OnSearchQueryChange(item))
-                        viewModel.onEvent(SearchUiEvent.OnSearch)
-                    },
-                    onRemoveHistoryItem = { item ->
-                        viewModel.onEvent(SearchUiEvent.OnRemoveSearchHistoryItem(item))
-                    },
-                    onClearAll = {
-                        viewModel.onEvent(SearchUiEvent.OnClearSearchHistory)
-                    },
-                )
-            } else if (showEmptyState) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(top = 56.dp),
-                    verticalArrangement = Arrangement.Top,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "Search your favorite movies, series, or anime",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        if (isGlobalSearchEnabled) {
-                            "Searching across all installed plugins."
-                        } else {
-                            "Searching across your selected plugin."
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    )
-                }
-            } else {
-                val resultsList = searchResultsGrouped?.values?.toList()
-
-                SearchResults(
-                    searchResultsGrouped = resultsList,
-                    selectedCategories = selectedCategories,
-                    isLoadingSearch = isLoadingSearch,
-                    isLoadingMore = uiState.isLoadingMore,
-                    canPaginate = uiState.canPaginate,
-                    isGlobalSearchEnabled = isGlobalSearchEnabled,
-                    onLoadMore = { viewModel.onEvent(SearchUiEvent.OnLoadMore) },
-                    onViewAll = { provider, title, items ->
-                        CategoryGridCache.put(provider.name, title, items)
-                        onNavigate(Config.CategoryGrid(provider.name, title))
-                    },
-                    onItemClick = { provider, item, backdrop, autoPlay ->
-                        onNavigate(
-                            Config.Details(provider.name, item.url, item.name, item.posterUrl, backdrop, autoPlay),
+                } else if (showEmptyState) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(top = 72.dp),
+                        verticalArrangement = Arrangement.Top,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(56.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f),
                         )
-                    },
-                )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            if (uiState.searchQuery.isEmpty()) "Search movies, series, or anime"
+                            else "No results found for \"${uiState.searchQuery}\"",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            if (uiState.searchQuery.isEmpty()) {
+                                if (isGlobalSearchEnabled) "Searching across all installed plugins."
+                                else "Searching across your selected plugin."
+                            } else {
+                                if (isGlobalSearchEnabled) "Try checking your spelling or search a different title."
+                                else "Try switching to All Plugins or check your spelling."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        )
+                    }
+                } else {
+                    val resultsList = searchResultsGrouped?.values?.toList()
+
+                    SearchResults(
+                        searchResultsGrouped = resultsList,
+                        selectedCategories = selectedCategories,
+                        isLoadingSearch = isLoadingSearch,
+                        isLoadingMore = uiState.isLoadingMore,
+                        canPaginate = uiState.canPaginate,
+                        isGlobalSearchEnabled = isGlobalSearchEnabled,
+                        onLoadMore = { viewModel.onEvent(SearchUiEvent.OnLoadMore) },
+                        onViewAll = { provider, title, items ->
+                            CategoryGridCache.put(provider.name, title, items)
+                            onNavigate(Config.CategoryGrid(provider.name, title))
+                        },
+                        onItemClick = { provider, item, backdrop, autoPlay ->
+                            onNavigate(
+                                Config.Details(provider.name, item.url, item.name, item.posterUrl, backdrop, autoPlay),
+                            )
+                        },
+                    )
+                }
             }
         }
     }
-}

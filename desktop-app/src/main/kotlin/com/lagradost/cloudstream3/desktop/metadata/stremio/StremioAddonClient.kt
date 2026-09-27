@@ -35,6 +35,7 @@ object StremioAddonClient {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     data class StremioVideo(
+        @JsonProperty("id") val id: String? = null,
         @JsonProperty("season") val season: Int? = null,
         @JsonProperty("episode") val episode: Int? = null,
         @JsonProperty("title") val title: String? = null,
@@ -43,6 +44,7 @@ object StremioAddonClient {
         @JsonProperty("released") val released: String? = null,
         @JsonProperty("imdbRating") val imdbRating: String? = null,
         @JsonProperty("rating") val rating: String? = null,
+        @JsonProperty("streams") val streams: List<com.lagradost.cloudstream3.desktop.stremio.StremioStreamItem>? = null,
     )
 
     @JsonIgnoreProperties(ignoreUnknown = true)

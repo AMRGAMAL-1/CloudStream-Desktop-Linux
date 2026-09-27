@@ -22,6 +22,7 @@ object ExploreCatalogClient {
         catalogId: String,
         genre: String? = null,
         skip: Int = 0,
+        queryParams: String = "",
     ): List<ExploreItem> = coroutineScope {
         val queryParts = mutableListOf<String>()
         if (!genre.isNullOrBlank() && !genre.equals("All", ignoreCase = true)) {
@@ -39,7 +40,10 @@ object ExploreCatalogClient {
         }
 
         val cleanBase = baseUrl.trimEnd('/')
-        val url = "$cleanBase/catalog/$type/$catalogId$pathExtra.json"
+        val querySuffix = if (queryParams.isNotBlank()) {
+            if (queryParams.startsWith("?")) queryParams else "?$queryParams"
+        } else ""
+        val url = "$cleanBase/catalog/$type/$catalogId$pathExtra.json$querySuffix"
 
         val existing = inflightRequests[url]
         if (existing != null && existing.isActive) {

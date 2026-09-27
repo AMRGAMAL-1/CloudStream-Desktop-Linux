@@ -859,6 +859,7 @@
         document.getElementById('playerModalBackdrop')?.classList.remove('active');
         document.getElementById('qualityServerBtn')?.classList.remove('active');
         document.getElementById('audioSubsBtn')?.classList.remove('active');
+        document.getElementById('speedBtn')?.classList.remove('active');
         if (typeof switchToSubTracksView === 'function') switchToSubTracksView();
         isMenuOpen = false;
         document.body.classList.remove('panel-open');
@@ -886,6 +887,8 @@
                 document.getElementById('qualityServerBtn')?.classList.add('active');
             } else if (id === 'audioSubsPopover') {
                 document.getElementById('audioSubsBtn')?.classList.add('active');
+            } else if (id === 'speedPanel') {
+                document.getElementById('speedBtn')?.classList.add('active');
             } else if (id === 'episodesPanel') {
                 if (typeof renderFilteredEpisodes === 'function' && typeof currentSelectedSeason !== 'undefined') {
                     renderFilteredEpisodes(currentSelectedSeason, typeof currentSelectedChunk !== 'undefined' ? currentSelectedChunk : -1, true);
@@ -1339,62 +1342,27 @@
                 const currIdx = typeof currentLinkIndex === 'number' && currentLinkIndex >= 0 ? currentLinkIndex : 0;
                 const activeLink = links[currIdx] || links.find(l => l.isActive);
 
-                let rawName = activeLink ? (activeLink.name || `Source ${activeLink.index + 1}`) : '';
                 const siteName = (activeLink && activeLink.source) ? activeLink.source.trim() : '';
+                const rawName = activeLink ? (activeLink.name || '') : '';
 
-                // Extract file size if present (e.g. [1.92 GB], 1.92GB, [850 MB])
-                let sizeStr = '';
-                const sizeMatch = rawName.match(/(?:\[\s*)?(\d+(?:\.\d+)?\s*(?:GB|MB|KB|GiB|MiB))\b(?:\s*\])?/i);
-                if (sizeMatch && sizeMatch[1]) {
-                    sizeStr = sizeMatch[1].toUpperCase().replace(/\s+/, ' ');
-                }
-
-                // Clean scraper artifacts (file size, rip types, codecs, resolution brackets)
-                let serverName = rawName
-                    .replace(/\[\s*\d+(\.\d+)?\s*(?:GB|MB|KB|G|M)\s*\]/gi, '')
-                    .replace(/\b\d+(\.\d+)?\s*(?:GB|MB|KB)\b/gi, '')
-                    .replace(/\[\s*(?:WEB-DL|WEBRip|BluRay|BDRip|BRRip|HDRip|HDTV|DVDRip|REMUX|CAM|TS)\b[^\]]*\]/gi, '')
-                    .replace(/\b(?:WEB-DL|WEBRip|BluRay|BDRip|BRRip|HDRip|HDTV|DVDRip|REMUX)\b/gi, '')
-                    .replace(/\[\s*(?:DDP\d*(\.\d+)?|DD\d*(\.\d+)?|AAC\d*|AC3|EAC3|HEVC|H\.?26[45]|x26[45]|10bit|HDR\d*|Atmos|TrueHD)\b[^\]]*\]/gi, '')
-                    .replace(/\[\s*(?:2160p|1080p|720p|480p|360p|4K|UHD|FHD|HD|SD)\s*\]/gi, '')
-                    .replace(/\b(?:2160p|1080p|720p|480p|360p|4k|uhd|fhd|hd|sd)\b/gi, '')
-                    .trim();
-
-                // Format Provider [Server] into Provider · Server and strip trailing scene release filenames
-                const bracketMatch = serverName.match(/^([^[]*?)\[([^\]]+)\](.*)$/);
-                if (bracketMatch) {
-                    const prefix = bracketMatch[1].trim();
-                    const inside = bracketMatch[2].trim();
-                    const suffix = bracketMatch[3].trim();
-                    const extraBrackets = (suffix.match(/\[[^\]]+\]/g) || []).join(' ');
-                    serverName = prefix 
-                        ? `${prefix} · ${inside}${extraBrackets ? ' ' + extraBrackets : ''}`.trim() 
-                        : `${inside}${extraBrackets ? ' ' + extraBrackets : ''}`.trim();
-                }
-                serverName = serverName.replace(/[\s\-_•/]+$/g, '').replace(/^[\s\-_•/]+/g, '').trim();
-
-                // Incorporate site/provider name if available and not already in serverName (normalized comparison)
-                if (siteName) {
-                    const normSite = siteName.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const normServer = serverName.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-                    if (normSite && normServer) {
-                        if (normServer.includes(normSite)) {
-                            // serverName already contains siteName; keep serverName
-                        } else if (normSite.includes(normServer)) {
-                            // siteName already contains serverName; use siteName
-                            serverName = siteName;
-                        } else {
-                            // Distinct site and server
-                            serverName = serverName ? `${siteName} · ${serverName}` : siteName;
-                        }
-                    } else if (!serverName) {
-                        serverName = siteName;
+                // Extract clean source provider name
+                let cleanSource = siteName;
+                if (!cleanSource && rawName) {
+                    let firstLine = rawName.split(/\r?\n/)[0].trim();
+                    firstLine = firstLine.replace(/[\p{Extended_Pictographic}\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+                    const bracketMatch = firstLine.match(/\[([^\]]+)\]/);
+                    if (bracketMatch) {
+                        cleanSource = bracketMatch[1].trim();
+                    } else {
+                        cleanSource = firstLine.replace(/[\s\-_•/·:]+$/g, '').replace(/^[\s\-_•/·:]+/g, '').trim();
                     }
+                    if (cleanSource.length > 24) cleanSource = cleanSource.substring(0, 24).trim();
                 }
-                if (!serverName && activeLink) serverName = `Source ${activeLink.index + 1}`;
+                if (!cleanSource && activeLink) {
+                    cleanSource = `Source ${currIdx + 1}`;
+                }
 
-                // Standard quality resolution matching Android Qualities standard
+                // Standard quality resolution
                 let qualityStr = '';
                 const declaredQuality = (activeLink && typeof activeLink.quality === 'number' && activeLink.quality > 0 && activeLink.quality !== 400)
                     ? activeLink.quality
@@ -1402,7 +1370,14 @@
 
                 if (declaredQuality > 0) {
                     qualityStr = declaredQuality >= 2160 ? '4K' : `${declaredQuality}p`;
-                } else if (meta && meta.resolution) {
+                } else if (rawName) {
+                    const qMatch = rawName.match(/\b(2160p|4k|1440p|1080p|720p|480p|360p)\b/i);
+                    if (qMatch) {
+                        qualityStr = qMatch[1].toLowerCase() === '4k' ? '4K' : qMatch[1].toLowerCase();
+                    }
+                }
+
+                if (!qualityStr && meta && meta.resolution) {
                     // Fallback for adaptive HLS/DASH or undeclared streams (aspect-ratio aware)
                     const parts = meta.resolution.split('x');
                     const w = parts[0] ? parseInt(parts[0].trim(), 10) : 0;
@@ -1418,8 +1393,7 @@
 
                 if (!qualityStr) qualityStr = 'Auto';
 
-                let displayText = serverName ? `${serverName} • ${qualityStr}` : qualityStr;
-                if (sizeStr) displayText += ` • ${sizeStr}`;
+                const displayText = cleanSource ? `${cleanSource} • ${qualityStr}` : qualityStr;
 
                 if (serverQualityValue.innerText !== displayText) serverQualityValue.innerText = displayText;
                 serverQualitySegment.style.display = 'inline-flex';
@@ -1549,17 +1523,46 @@
         ).join('');
         
         const filterContainer = document.getElementById('filterChipsContainer');
-        if (filterContainer) filterContainer.innerHTML = chipsHtml;
+        if (filterContainer && filterContainer._lastChipsHtml !== chipsHtml) {
+            filterContainer.innerHTML = chipsHtml;
+            filterContainer._lastChipsHtml = chipsHtml;
+        }
 
         const serversListElem = document.getElementById('serversList');
         if (!serversListElem) return;
 
         if (filtered.length === 0) {
             serversListElem.innerHTML = `<div style="padding: 20px; text-align: center; color: rgba(255,255,255,0.5);">No sources match your filter.</div>`;
+            serversListElem._lastSignature = null;
             return;
         }
 
         const failedArr = (window.lastMeta && window.lastMeta.failedLinks) || [];
+        const currentFailedJson = JSON.stringify(failedArr);
+        const listSignature = activeServerFilter + '::' + filtered.map(l => (l.url || '') + ':' + (l.name || '') + ':' + (l.quality || '') + ':' + (l.isTorrent || '') + ':' + (l.seeds || '')).join('|');
+
+        if (serversListElem._lastSignature === listSignature && serversListElem._lastFailedJson === currentFailedJson && serversListElem.children.length === filtered.length) {
+            // Update active state in-place without rebuilding DOM under hover cursor
+            const items = serversListElem.querySelectorAll('.srv-item');
+            items.forEach((item, idx) => {
+                const l = filtered[idx];
+                if (l) {
+                    if (l.isActive) {
+                        item.classList.add('active');
+                        const check = item.querySelector('.srv-check');
+                        if (check && !check.innerHTML) check.innerHTML = SVGS.check;
+                    } else {
+                        item.classList.remove('active');
+                        const check = item.querySelector('.srv-check');
+                        if (check && check.innerHTML) check.innerHTML = '';
+                    }
+                }
+            });
+            return;
+        }
+
+        serversListElem._lastSignature = listSignature;
+        serversListElem._lastFailedJson = currentFailedJson;
 
         serversListElem.innerHTML = filtered.map(l => {
             const failedInfo = failedArr.find(f => f.index === l.index || (f.url && f.url === l.url));
@@ -1642,7 +1645,7 @@
             }
 
             if (chunkBar) {
-                chunkBar.innerHTML = Array.from({ length: totalChunks }, (_, cIdx) => {
+                const chunkHtml = Array.from({ length: totalChunks }, (_, cIdx) => {
                     const start = cIdx * EPISODE_CHUNK_SIZE + 1;
                     const end = Math.min((cIdx + 1) * EPISODE_CHUNK_SIZE, filtered.length);
                     const isChunkActive = cIdx === currentSelectedChunk;
@@ -1650,6 +1653,10 @@
                         ${start}–${end}
                     </button>`;
                 }).join('');
+                if (chunkBar._lastChunkHtml !== chunkHtml) {
+                    chunkBar.innerHTML = chunkHtml;
+                    chunkBar._lastChunkHtml = chunkHtml;
+                }
             }
 
             const startIdx = currentSelectedChunk * EPISODE_CHUNK_SIZE;
@@ -1662,6 +1669,25 @@
         const listEl = document.getElementById('episodesList');
         if (listEl) {
             const isAudioActive = !!(document.body.classList.contains('audio-mode-active') || (window.lastMeta && window.lastMeta.isAudioMode));
+            const epSignature = `${selectedSeason}:${currentSelectedChunk}:${isAudioActive}:${episodesToRender.map(e => `${e.id}:${e.isActive}:${e.isSeen}`).join('|')}`;
+            if (listEl._lastEpSignature === epSignature && listEl.children.length === episodesToRender.length) {
+                // Update active episode progress fill in-place without destroying DOM under hover cursor
+                const activeEp = episodesToRender.find(e => e.isActive);
+                if (activeEp) {
+                    const activeProgEl = listEl.querySelector('.ep-card-desk.active .ep-card-prog-fill');
+                    if (activeProgEl) {
+                        let pct = 0;
+                        if (typeof durationMs === 'number' && durationMs > 0 && typeof currentPosMs === 'number' && currentPosMs > 0) {
+                            pct = Math.min(100, Math.max(0, Math.round((currentPosMs / durationMs) * 100)));
+                        } else if (typeof activeEp.watchedPercentage === 'number') {
+                            pct = Math.min(100, Math.max(0, Math.round(activeEp.watchedPercentage)));
+                        }
+                        activeProgEl.style.width = `${pct}%`;
+                    }
+                }
+                return;
+            }
+            listEl._lastEpSignature = epSignature;
             listEl.innerHTML = episodesToRender.map((ep, i) => {
                 const num = ep.episode || (i + 1 + (currentSelectedChunk * EPISODE_CHUNK_SIZE));
                 const epIdEncoded = encodeURIComponent(ep.id || '');
@@ -2127,6 +2153,13 @@
             const showcaseBadge = showcaseEl ? showcaseEl.querySelector('.pause-cast-showcase-badge') : null;
 
             if (!castListEl) return;
+
+            const castSignature = `${pauseCastMode}:${(currentCastList || []).map(a => `${a.name}:${a.role}:${a.voiceActorName || ''}:${a.image || ''}`).join('|')}`;
+            if (castListEl._lastCastSignature === castSignature && castListEl.children.length === Math.min((currentCastList || []).length, 6)) {
+                if (pauseCast) pauseCast.style.display = 'flex';
+                return;
+            }
+            castListEl._lastCastSignature = castSignature;
             castListEl.innerHTML = '';
 
             if (!currentCastList || currentCastList.length === 0) {
@@ -2727,12 +2760,16 @@
 
             if (seasonSelectWrap) seasonSelectWrap.style.display = 'flex';
             if (sChipsBar) {
-                sChipsBar.innerHTML = seasons.map(s => {
+                const seasonsHtml = seasons.map(s => {
                     const isSActive = (s === currentSelectedSeason);
                     return `<button class="ep-season-btn ${isSActive ? 'active' : ''}" data-season="${s}" onclick="onSeasonChipClick(${s})">
                         <span>Season ${s}</span>
                     </button>`;
                 }).join('');
+                if (sChipsBar._lastSeasonsHtml !== seasonsHtml) {
+                    sChipsBar.innerHTML = seasonsHtml;
+                    sChipsBar._lastSeasonsHtml = seasonsHtml;
+                }
             }
             const listEl = document.getElementById('episodesList');
             const epPanel = document.getElementById('episodesPanel');
@@ -2810,7 +2847,10 @@
             }
         }
         const audioListElem = document.getElementById('audioList');
-        if (audioListElem) audioListElem.innerHTML = audioHtml || `<div style="padding:10px 20px;font-size:13px;color:#666;">No audio tracks</div>`;
+        if (audioListElem && audioListElem._lastAudioHtml !== audioHtml) {
+            audioListElem.innerHTML = audioHtml || `<div style="padding:10px 20px;font-size:13px;color:#666;">No audio tracks</div>`;
+            audioListElem._lastAudioHtml = audioHtml;
+        }
 
         // Video Tracks (Qualities)
         let videoHtml = '';
@@ -2864,7 +2904,10 @@
                 </div>`;
         }
         const videoListElem = document.getElementById('videoList');
-        if (videoListElem) videoListElem.innerHTML = videoHtml || `<div style="padding:10px 20px;font-size:13px;color:#666;">Auto (Default)</div>`;
+        if (videoListElem && videoListElem._lastVideoHtml !== videoHtml) {
+            videoListElem.innerHTML = videoHtml || `<div style="padding:10px 20px;font-size:13px;color:#666;">Auto (Default)</div>`;
+            videoListElem._lastVideoHtml = videoHtml;
+        }
 
         // Update the capsule button badge with the active resolution or 'Auto'
         let activeQualityLabel = 'Auto';
@@ -2906,7 +2949,10 @@
         }
 
         const subListElem = document.getElementById('subList');
-        if (subListElem) subListElem.innerHTML = subHtml;
+        if (subListElem && subListElem._lastSubHtml !== subHtml) {
+            subListElem.innerHTML = subHtml;
+            subListElem._lastSubHtml = subHtml;
+        }
 
         // Auto-populate search query with title whenever metadata arrives
         const searchInput = document.getElementById('subSearchQuery');
@@ -3397,8 +3443,9 @@
 
                 if (overlay) {
                     overlay.classList.remove('hide-main-ui');
+                    overlay.classList.add('hidden-controls');
                 }
-                showControls();
+                document.body.classList.add('hidden-controls');
                 evaluateUIStates();
 
                 // Trigger maturity advisory on clean playback start
@@ -3689,10 +3736,13 @@
     window.playerUpdate = handleMessage;
 
     if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.addEventListener('message', e => {
-            // e.data from PostWebMessageAsJson is already parsed in WebView2
-            handleMessage(e.data);
-        });
+        if (!window._msgListenerAttached) {
+            window._msgListenerAttached = true;
+            window.chrome.webview.addEventListener('message', e => {
+                // e.data from PostWebMessageAsJson is already parsed in WebView2
+                handleMessage(e.data);
+            });
+        }
     }
 
     // Subtitle Search Modal
@@ -4121,7 +4171,8 @@
         if (btnText) btnText.style.display = 'none';
         if (spinner) spinner.style.display = 'block';
 
-        send('searchSubtitles', JSON.stringify({ query, lang, season, episode }));
+        const imdbId = (window.lastMeta && window.lastMeta.imdbId) || '';
+        send('searchSubtitles', JSON.stringify({ query, lang, season, episode, imdbId }));
     };
 
     // Render Subtitle Results with Quick Filters
@@ -4855,18 +4906,34 @@
         send('setVolume', v);
     });
 
-    // Settings Controls
-    // Speed
-    const speedMapping = [0.25, 0.35, 0.5, 0.65, 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+    // Settings Controls - Playback Speed
+    const applySpeed = (val) => {
+        const clamped = Math.max(0.25, Math.min(4.0, Math.round(val * 100) / 100));
+        currentSpeed = clamped;
+        window.currentSpeed = clamped;
+        syncSpeedBadge(clamped);
+        send('setSpeed', clamped);
+    };
+    window.applySpeed = applySpeed;
+
     const syncSpeedBadge = (val) => {
-        const valStr = Number.isInteger(val) ? val.toFixed(1) : val.toString();
+        const clamped = Math.max(0.25, Math.min(4.0, Math.round(val * 100) / 100));
+        const heroValStr = clamped.toFixed(2) + "x";
+        const valStr = Number.isInteger(clamped) ? clamped.toFixed(0) : clamped.toString();
+        const isNormal = Math.abs(clamped - 1.0) < 0.01;
+
+        // 1. Hero text readout in the speed popover
+        const speedHero = document.getElementById('speedHeroDisplay');
+        if (speedHero) speedHero.innerText = heroValStr;
+
+        // 2. Control bar button and badge
         const speedBtn = document.getElementById('speedBtn');
         const speedBadge = document.getElementById('speedBadge');
         if (speedBtn && speedBadge) {
-            if (Math.abs(val - 1.0) < 0.01) {
+            if (isNormal) {
                 speedBadge.style.display = 'none';
                 speedBtn.classList.remove('speed-custom');
-                speedBtn.title = 'Playback Speed';
+                speedBtn.title = 'Playback Speed (Hotkey: [ / ])';
             } else {
                 speedBadge.innerText = valStr + "×";
                 speedBadge.style.display = 'inline-flex';
@@ -4874,81 +4941,58 @@
                 speedBtn.title = `Playback Speed (${valStr}×)`;
             }
         }
+
         const speedSliderVal = document.getElementById('speedSliderVal');
         if (speedSliderVal) speedSliderVal.innerText = valStr + "×";
 
-        // Sync speed chips active state
-        document.querySelectorAll('#speedChipsRow .cs-speed-chip, #speedChips .chip').forEach(chip => {
-            const sp = parseFloat(chip.dataset.speed);
-            if (Math.abs(val - sp) < 0.01) {
-                chip.classList.add('active');
+        // 3. Preset pills active states (compact pills, popover footer, quality modal)
+        document.querySelectorAll('#speedChipsRow .speed-compact-pill, #speedChipsRow .chip, #speedChipsRow .cs-speed-chip, #speedChips .chip').forEach(el => {
+            const sp = parseFloat(el.dataset.speed);
+            if (!isNaN(sp) && Math.abs(clamped - sp) < 0.01) {
+                el.classList.add('active');
             } else {
-                chip.classList.remove('active');
+                el.classList.remove('active');
             }
         });
 
-        // Sync slider position and progress fill
+        // 4. Slider sync with track gradient fill
         const speedSlider = document.getElementById('speedSlider');
         if (speedSlider) {
-            let closestIdx = 6;
-            let minDiff = Infinity;
-            speedMapping.forEach((sp, i) => {
-                const diff = Math.abs(val - sp);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closestIdx = i;
-                }
-            });
-            speedSlider.value = closestIdx - 6;
-            const min = parseFloat(speedSlider.min) || -6;
-            const max = parseFloat(speedSlider.max) || 6;
-            const pct = Math.max(0, Math.min(100, (((closestIdx - 6) - min) / (max - min)) * 100));
+            speedSlider.value = clamped;
+            const min = parseFloat(speedSlider.min) || 0.25;
+            const max = parseFloat(speedSlider.max) || 4.0;
+            const pct = Math.max(0, Math.min(100, ((clamped - min) / (max - min)) * 100));
             speedSlider.style.setProperty('--slider-pct', `${pct}%`);
         }
     };
     window.syncSpeedBadge = syncSpeedBadge;
 
-    const updateSpeedUI = (sliderVal) => {
-        const idx = parseInt(sliderVal) + 6;
-        const val = speedMapping[idx];
-        currentSpeed = val;
-        window.currentSpeed = val;
-        syncSpeedBadge(val);
-        send('setMpvProperty', `speed:${val}`);
-    };
-    document.getElementById('speedSlider').addEventListener('input', e => {
+    document.getElementById('speedSlider')?.addEventListener('input', e => {
         e.stopPropagation();
-        updateSpeedUI(e.target.value);
+        applySpeed(parseFloat(e.target.value));
     });
-    document.querySelectorAll('#speedChips .chip').forEach(chip => {
+    document.querySelectorAll('#speedChipsRow .speed-compact-pill, #speedChipsRow .chip, #speedChipsRow .cs-speed-chip').forEach(chip => {
         chip.addEventListener('click', e => {
             e.stopPropagation();
-            const targetSpeed = parseFloat(chip.dataset.speed);
-            let closestIdx = 6;
-            let minDiff = Infinity;
-            speedMapping.forEach((sp, i) => {
-                const diff = Math.abs(targetSpeed - sp);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closestIdx = i;
-                }
-            });
-            updateSpeedUI(closestIdx - 6);
+            const sp = parseFloat(chip.dataset.speed);
+            if (!isNaN(sp)) applySpeed(sp);
         });
     });
-    document.getElementById('speedDecPanelBtn').addEventListener('click', e => {
+    document.getElementById('speedDecBtn')?.addEventListener('click', e => {
         e.stopPropagation();
-        let val = parseInt(document.getElementById('speedSlider').value);
-        if (val > -6) updateSpeedUI(val - 1);
+        applySpeed(currentSpeed - 0.05);
     });
-    document.getElementById('speedIncPanelBtn').addEventListener('click', e => {
+    document.getElementById('speedIncBtn')?.addEventListener('click', e => {
         e.stopPropagation();
-        let val = parseInt(document.getElementById('speedSlider').value);
-        if (val < 6) updateSpeedUI(val + 1);
+        applySpeed(currentSpeed + 0.05);
     });
-    document.getElementById('speedSliderVal').addEventListener('click', e => {
+    document.getElementById('speedHeroDisplay')?.addEventListener('click', e => {
         e.stopPropagation();
-        updateSpeedUI(0);
+        applySpeed(1.0);
+    });
+    document.getElementById('btnResetSpeed')?.addEventListener('click', e => {
+        e.stopPropagation();
+        applySpeed(1.0);
     });
     // Sync
     const updateSyncUI = () => {
@@ -5911,7 +5955,7 @@
                 }
                 break;
             case 'Equal': case 'NumpadAdd': case 'BracketRight':
-                currentSpeed = Math.min(3.0, Math.round((currentSpeed + 0.25) * 100) / 100);
+                currentSpeed = Math.min(4.0, Math.round((currentSpeed + 0.25) * 100) / 100);
                 window.currentSpeed = currentSpeed;
                 send('setSpeed', currentSpeed);
                 showHudToast(`Speed: ${currentSpeed}x`);

@@ -56,48 +56,49 @@ fun AppUpdateDialog() {
     CloudstreamCustomDialog(
         show = showUpdateDialog,
         onDismissRequest = { showUpdateDialog = false },
-        modifier = Modifier.fillMaxWidth(0.5f).fillMaxHeight(0.75f),
+        modifier = Modifier.width(460.dp).wrapContentHeight(),
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth().wrapContentHeight(),
         ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(36.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         "Update Available",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = LocalContentColor.current,
                     )
                     Text(
                         "Version v${release.tag_name.removePrefix("v")}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = LocalContentColor.current.copy(alpha = 0.7f),
                     )
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), color = LocalContentColor.current.copy(alpha = 0.1f))
+            HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), color = LocalContentColor.current.copy(alpha = 0.1f))
 
             // Body / Changelog
             val changelogText = release.body ?: "No changelog provided."
@@ -106,8 +107,8 @@ fun AppUpdateDialog() {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .padding(24.dp),
+                    .heightIn(min = 60.dp, max = 180.dp)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
@@ -141,13 +142,13 @@ fun AppUpdateDialog() {
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), color = LocalContentColor.current.copy(alpha = 0.1f))
+            HorizontalDivider(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), color = LocalContentColor.current.copy(alpha = 0.1f))
 
             // Footer
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(onClick = { showUpdateDialog = false }) {

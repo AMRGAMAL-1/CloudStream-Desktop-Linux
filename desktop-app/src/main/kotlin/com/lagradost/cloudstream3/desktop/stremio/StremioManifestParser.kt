@@ -73,6 +73,9 @@ object StremioManifestParser {
             StremioBehaviorHints()
         }
 
+        val streamResource = resources.find { it.name.equals("stream", ignoreCase = true) }
+        val effectivePrefixes = (defaultPrefixes + (streamResource?.idPrefixes ?: emptyList())).distinct()
+
         return StremioManifest(
             id = id,
             name = name,
@@ -82,7 +85,7 @@ object StremioManifestParser {
             backgroundUrl = backgroundUrl,
             resources = resources,
             types = defaultTypes,
-            idPrefixes = defaultPrefixes,
+            idPrefixes = effectivePrefixes,
             catalogs = catalogs,
             behaviorHints = behaviorHints,
             transportUrl = manifestUrl,

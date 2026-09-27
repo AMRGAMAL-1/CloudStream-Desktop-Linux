@@ -80,6 +80,7 @@ class DesktopTorrServerApi(
                 val body = res.body?.string() ?: return@withContext null
                 val root = mapper.readTree(body)
                 val hash = root.get("hash")?.asText()?.takeIf { it.isNotBlank() }
+                    ?: DesktopTorrentEngine.extractInfoHash(magnetLink)
                 AppLogger.d("TorrServer added torrent: $hash")
                 hash
             }

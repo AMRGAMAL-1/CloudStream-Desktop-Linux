@@ -506,9 +506,15 @@ class StremioApi : MainAPI() {
             val episodes = videos.map { video ->
                 val seasonNum = video.season ?: 1
                 val epNum = video.episode ?: 1
+                val targetData = video.id?.takeIf { it.isNotBlank() } ?: "$cleanId:$seasonNum:$epNum"
+
+                if (!video.streams.isNullOrEmpty()) {
+                    StremioAddonManager.registerEmbeddedStreams(targetData, video.streams)
+                }
+
                 @Suppress("DEPRECATION_ERROR")
                 Episode(
-                    data = "$cleanId:$seasonNum:$epNum",
+                    data = targetData,
                     name = video.title?.takeIf { it.isNotBlank() } ?: "Episode $epNum",
                     season = seasonNum,
                     episode = epNum,

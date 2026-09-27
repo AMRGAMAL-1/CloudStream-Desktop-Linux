@@ -55,6 +55,7 @@ data class PlayerUiSyncState(
     val audioEqPreset: String = "Flat",
     val audioVolumeMax: Boolean = false,
     val audioDelay: Float = 0f,
+    val imdbId: String? = null,
 )
 
 data class ActorPayload(

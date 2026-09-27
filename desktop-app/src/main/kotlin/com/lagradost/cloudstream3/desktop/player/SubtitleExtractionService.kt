@@ -23,11 +23,13 @@ object SubtitleExtractionService {
         lang: String?,
         season: Int?,
         episode: Int?,
+        imdbId: String? = null,
     ): List<Map<String, Any?>> = SubtitlePipeline.searchSubtitles(
         query = query,
         lang = lang,
         season = season,
         episode = episode,
+        imdbId = imdbId,
     )
 
     suspend fun downloadAndExtractSubtitle(

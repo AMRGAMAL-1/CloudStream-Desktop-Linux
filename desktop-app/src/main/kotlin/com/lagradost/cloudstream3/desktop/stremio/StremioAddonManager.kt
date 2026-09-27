@@ -1,6 +1,8 @@
 package com.lagradost.cloudstream3.desktop.stremio
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.desktop.subtitles.LanguageNormalizer
 import com.lagradost.cloudstream3.desktop.utils.appScope
@@ -50,6 +52,13 @@ object StremioAddonManager {
 
     private val _addons = MutableStateFlow<List<ManagedStremioAddon>>(emptyList())
     val addons: StateFlow<List<ManagedStremioAddon>> = _addons.asStateFlow()
+
+    private val embeddedStreamsCache = java.util.concurrent.ConcurrentHashMap<String, List<StremioStreamItem>>()
+
+    fun registerEmbeddedStreams(videoId: String, streams: List<StremioStreamItem>?) {
+        if (streams.isNullOrEmpty()) return
+        embeddedStreamsCache[videoId] = streams
+    }
 
     init {
         loadAddons()
@@ -210,38 +219,95 @@ object StremioAddonManager {
         return _addons.value.filter { it.enabled && it.providesStreams }
     }
 
+    fun cleanMediaId(raw: String): String {
+        var id = raw.trim()
+        if (id.startsWith("stremio:///", ignoreCase = true)) {
+            id = id.removePrefix("stremio:///")
+        } else if (id.startsWith("stremio://", ignoreCase = true)) {
+            id = id.removePrefix("stremio://")
+        } else if (id.startsWith("stremio:", ignoreCase = true)) {
+            id = id.removePrefix("stremio:")
+        }
+        id = id.trimStart('/')
+        listOf("movie/", "series/", "tv/", "anime/").forEach { typePrefix ->
+            if (id.startsWith(typePrefix, ignoreCase = true)) {
+                id = id.substring(typePrefix.length)
+            }
+        }
+        return id.trim()
+    }
+
     suspend fun searchStreams(
         imdbId: String?,
         season: Int? = null,
         episode: Int? = null,
         title: String? = null,
+        mediaId: String? = null,
+        isSeries: Boolean? = null,
+        onSubtitle: ((SubtitleFile) -> Unit)? = null,
         onLink: (ExtractorLink) -> Unit,
     ) = withContext(Dispatchers.IO) {
+        val rawMediaId = mediaId?.trim()?.takeIf { it.isNotBlank() }
+            ?: imdbId?.trim()?.takeIf { it.isNotBlank() && !it.startsWith("tt", ignoreCase = true) }
+        val effectiveMediaId = rawMediaId?.let { cleanMediaId(it) }
+
         var cleanImdb = imdbId?.trim()?.takeIf { it.startsWith("tt", ignoreCase = true) }
-        if (cleanImdb == null && !title.isNullOrBlank()) {
-            cleanImdb = resolveImdbId(title, isSeries = (season != null && season > 0))
+        if (cleanImdb == null && effectiveMediaId?.startsWith("tt", ignoreCase = true) == true) {
+            cleanImdb = effectiveMediaId.substringBefore(":")
         }
-        if (cleanImdb == null) {
-            AppLogger.d(TAG, "Skipping Stremio stream query: No verified IMDb ID (title='$title')")
+        val isSeriesResolved = isSeries ?: ((season != null && season > 0) || (episode != null && episode > 0))
+        if (cleanImdb == null && !title.isNullOrBlank()) {
+            cleanImdb = resolveImdbId(title, isSeries = isSeriesResolved)
+        }
+        if (cleanImdb == null && effectiveMediaId == null) {
+            AppLogger.d(TAG, "Skipping Stremio stream query: Neither verified IMDb ID nor media ID available (title='$title')")
             return@withContext
         }
 
         val activeAddons = getEnabledStreamAddons()
         if (activeAddons.isEmpty()) return@withContext
 
-        val isSeries = (season != null && season > 0) || (episode != null && episode > 0)
-        val requestType = if (isSeries) "series" else "movie"
-        val requestVideoId = if (isSeries) {
-            "$cleanImdb:${season ?: 1}:${episode ?: 1}"
-        } else {
-            cleanImdb
+        val requestType = if (isSeriesResolved) "series" else "movie"
+        val defaultVideoId = if (cleanImdb != null) {
+            if (isSeriesResolved) "$cleanImdb:${season ?: 1}:${episode ?: 1}" else cleanImdb
+        } else null
+
+        val queryableAddons = activeAddons.mapNotNull { addon ->
+            val customPrefixMatch = effectiveMediaId != null && addon.idPrefixes.any { prefix ->
+                prefix.isNotBlank() && effectiveMediaId.startsWith(prefix, ignoreCase = true)
+            }
+            val supportsImdb = addon.idPrefixes.isEmpty() || addon.idPrefixes.any { it.equals("tt", ignoreCase = true) }
+
+            val targetVideoId = when {
+                customPrefixMatch -> effectiveMediaId
+                supportsImdb && defaultVideoId != null -> defaultVideoId
+                else -> null
+            }
+
+            if (targetVideoId != null) {
+                addon to targetVideoId
+            } else {
+                null
+            }
         }
 
-        AppLogger.i(TAG, "Querying ${activeAddons.size} Stremio stream addons for $requestType:$requestVideoId")
+        // 1. Emit embedded streams first if available
+        if (effectiveMediaId != null) {
+            val embedded = embeddedStreamsCache[effectiveMediaId]
+            if (!embedded.isNullOrEmpty()) {
+                AppLogger.i(TAG, "Emitting ${embedded.size} embedded streams for $effectiveMediaId")
+                for (item in embedded) {
+                    emitStreamItem(item, "Embedded", onSubtitle, onLink)
+                }
+            }
+        }
 
-        val deferred = activeAddons.map { addon ->
+        if (queryableAddons.isEmpty()) return@withContext
+        AppLogger.i(TAG, "Querying ${queryableAddons.size} compatible Stremio stream addons for $requestType (mediaId=$effectiveMediaId, imdb=$cleanImdb)")
+
+        val deferred = queryableAddons.map { (addon, requestVideoId) ->
             async {
-                withTimeoutOrNull(5000L) {
+                withTimeoutOrNull(8000L) {
                     try {
                         val streamUrl = StremioTransport.buildStreamUrl(
                             manifestUrl = addon.manifestUrl,
@@ -249,89 +315,126 @@ object StremioAddonManager {
                             id = requestVideoId,
                         )
                         AppLogger.d(TAG, "Querying stream addon '${addon.name}': $streamUrl")
-                        val responseText = app.get(streamUrl, timeout = 4500L).text
+                        val responseText = app.get(streamUrl, timeout = 7500L).text
                         val parsed = mapper.readValue(responseText, StremioStreamResponse::class.java)
                         val streams = parsed.streams ?: return@withTimeoutOrNull
 
                         for (item in streams) {
-                            val streamUrlStr = item.url?.trim() ?: continue
-                            if (streamUrlStr.isBlank() || !streamUrlStr.startsWith("http", ignoreCase = true)) continue
-
-                            val titleText = item.title ?: item.description ?: ""
-                            val rawName = item.name?.replace("\r", "")?.trim() ?: ""
-                            val addonName = addon.name.ifBlank { "Stremio" }
-                            val parsedQuality = parseQualityFromText(titleText, item.name)
-
-                            val headers = item.behaviorHints?.headers ?: emptyMap()
-                            val isM3u8 = streamUrlStr.contains(".m3u8", ignoreCase = true) || streamUrlStr.contains("m3u8", ignoreCase = true)
-                            val isDash = streamUrlStr.contains(".mpd", ignoreCase = true)
-
-                            val linkType = when {
-                                isM3u8 -> ExtractorLinkType.M3U8
-                                isDash -> ExtractorLinkType.DASH
-                                else -> ExtractorLinkType.VIDEO
-                            }
-
-                            // 1. Extract file size (e.g. from "💾 4.56 GB" or "4.56 GB")
-                            val sizeMatch = STREAM_SIZE_REGEX.find(titleText)?.groupValues?.get(1)
-                                ?: STREAM_SIZE_REGEX.find(rawName)?.groupValues?.get(1)
-                            val cleanSizeTag = sizeMatch?.let {
-                                val normalizedUnit = it.replace("GiB", "GB", ignoreCase = true)
-                                    .replace("MiB", "MB", ignoreCase = true)
-                                    .trim()
-                                "[$normalizedUnit]"
-                            }
-
-                            // 2. Extract release title (filtering out pure stats/emoji lines)
-                            val contentLines = titleText.lines()
-                                .map { it.trim() }
-                                .filter { it.isNotBlank() && !it.startsWith("💾") && !it.startsWith("👤") && !it.startsWith("⚙️") }
-
-                            val releaseTitle = contentLines.firstOrNull()?.ifBlank { null }
-                                ?: rawName.lines().lastOrNull()?.trim()?.ifBlank { null }
-                                ?: "Stream"
-
-                            // 3. Extract provider or cache tag from rawName if available (e.g. "[RD+]")
-                            val providerTag = if (rawName.isNotBlank() && !rawName.equals(addonName, ignoreCase = true)) {
-                                val bracketMatch = Regex("\\[(.*?)\\]").find(rawName)?.value
-                                val firstToken = rawName.lines().firstOrNull()?.trim()
-                                bracketMatch ?: if (!firstToken.isNullOrBlank() && firstToken != releaseTitle) "[$firstToken]" else "[$addonName]"
-                            } else {
-                                "[$addonName]"
-                            }
-
-                            val cleanLabel = buildString {
-                                append("⚡ ")
-                                if (providerTag.isNotBlank()) {
-                                    append("$providerTag ")
-                                }
-                                append(releaseTitle)
-                                if (cleanSizeTag != null && !releaseTitle.contains(cleanSizeTag.drop(1).dropLast(1), ignoreCase = true)) {
-                                    append(" $cleanSizeTag")
-                                }
-                            }
-
-                            val extractorLink = newExtractorLink(
-                                source = addonName,
-                                name = cleanLabel,
-                                url = streamUrlStr,
-                                type = linkType,
-                            ) {
-                                this.referer = headers["Referer"] ?: ""
-                                this.quality = parsedQuality
-                                this.headers = headers
-                            }
-
-                            onLink(extractorLink)
+                            emitStreamItem(item, addon.name, onSubtitle, onLink)
                         }
                     } catch (e: Exception) {
-                        AppLogger.w(TAG, "Stream query failed for '${addon.name}': ${e.message}")
+                        val msg = e.message ?: ""
+                        if (e is kotlinx.coroutines.CancellationException || msg.contains("Canceled", ignoreCase = true)) {
+                            AppLogger.d(TAG, "Stream query canceled for '${addon.name}'")
+                        } else {
+                            AppLogger.w(TAG, "Stream query failed for '${addon.name}': $msg")
+                        }
                     }
                 }
             }
         }
 
         deferred.awaitAll()
+    }
+
+    private suspend fun emitStreamItem(
+        item: StremioStreamItem,
+        sourceAddonName: String,
+        onSubtitle: ((SubtitleFile) -> Unit)?,
+        onLink: (ExtractorLink) -> Unit,
+    ) {
+        item.subtitles?.forEach { sub ->
+            val subUrl = sub.url?.trim() ?: return@forEach
+            if (subUrl.startsWith("http", ignoreCase = true)) {
+                val lang = sub.lang ?: "eng"
+                onSubtitle?.invoke(
+                    newSubtitleFile(
+                        lang = lang,
+                        url = subUrl,
+                    )
+                )
+            }
+        }
+
+        val streamUrlStr = item.url?.trim()
+            ?: item.infoHash?.let { "magnet:?xt=urn:btih:$it" }
+            ?: return
+        if (streamUrlStr.isBlank()) return
+
+        val titleText = item.title ?: item.description ?: ""
+        val rawName = item.name?.replace("\r", "")?.trim() ?: ""
+        val addonName = sourceAddonName.ifBlank { "Stremio" }
+        val parsedQuality = parseQualityFromText(titleText, item.name)
+
+        val headers = item.behaviorHints?.headers ?: emptyMap()
+        val isM3u8 = streamUrlStr.contains(".m3u8", ignoreCase = true) || streamUrlStr.contains("m3u8", ignoreCase = true)
+        val isDash = streamUrlStr.contains(".mpd", ignoreCase = true)
+        val isTorrent = item.infoHash != null ||
+            com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isTorrentUrl(streamUrlStr)
+
+        val linkType = when {
+            isTorrent -> ExtractorLinkType.TORRENT
+            isM3u8 -> ExtractorLinkType.M3U8
+            isDash -> ExtractorLinkType.DASH
+            else -> ExtractorLinkType.VIDEO
+        }
+
+        // 1. Extract file size (e.g. from "💾 4.56 GB" or "4.56 GB")
+        val sizeMatch = STREAM_SIZE_REGEX.find(titleText)?.groupValues?.get(1)
+            ?: STREAM_SIZE_REGEX.find(rawName)?.groupValues?.get(1)
+        val cleanSizeTag = sizeMatch?.let {
+            val normalizedUnit = it.replace("GiB", "GB", ignoreCase = true)
+                .replace("MiB", "MB", ignoreCase = true)
+                .trim()
+            "[$normalizedUnit]"
+        }
+
+        // 2. Extract release title (filtering out pure stats/emoji lines)
+        val contentLines = titleText.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.startsWith("💾") && !it.startsWith("👤") && !it.startsWith("⚙️") }
+
+        val releaseTitle = contentLines.firstOrNull()?.ifBlank { null }
+            ?: rawName.lines().lastOrNull()?.trim()?.ifBlank { null }
+            ?: "Stream"
+
+        // 3. Extract provider or cache tag from rawName if available (e.g. "[RD+]")
+        val providerTag = if (rawName.isNotBlank() && !rawName.equals(addonName, ignoreCase = true)) {
+            val bracketMatch = Regex("\\[(.*?)\\]").find(rawName)?.value
+            val firstToken = rawName.lines().firstOrNull()?.trim()
+            bracketMatch ?: if (!firstToken.isNullOrBlank() && firstToken != releaseTitle) "[$firstToken]" else "[$addonName]"
+        } else {
+            "[$addonName]"
+        }
+
+        val remainingLines = if (contentLines.size > 1) contentLines.drop(1) else emptyList()
+        val cleanLabel = buildString {
+            append("⚡ ")
+            if (providerTag.isNotBlank()) {
+                append("$providerTag ")
+            }
+            append(releaseTitle)
+            if (cleanSizeTag != null && !releaseTitle.contains(cleanSizeTag.drop(1).dropLast(1), ignoreCase = true)) {
+                append(" $cleanSizeTag")
+            }
+            if (remainingLines.isNotEmpty()) {
+                append("\n")
+                append(remainingLines.joinToString("\n"))
+            }
+        }
+
+        val extractorLink = newExtractorLink(
+            source = addonName,
+            name = cleanLabel,
+            url = streamUrlStr,
+            type = linkType,
+        ) {
+            this.referer = headers["Referer"] ?: ""
+            this.quality = parsedQuality
+            this.headers = headers
+        }
+
+        onLink(extractorLink)
     }
 
     private val RESOLUTION_REGEX = Regex("(?i)(?:^|[^0-9a-z])(2160p|4k|uhd|1440p|2k|qhd|1080p|fhd|720p|hd|480p|sd|360p|1080|720)(?:[^0-9a-z]|$)")
@@ -457,6 +560,22 @@ object StremioAddonManager {
         return@withContext allResults
     }
 
+    private fun isTitleMatch(query: String, candidate: String): Boolean {
+        fun tokenize(text: String): Set<String> {
+            val unaccented = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .lowercase()
+                .replace(Regex("(?i)\\b(season\\s*\\d+|s\\d+|\\(\\d{4}\\))\\b"), " ")
+            return unaccented.split(Regex("[^a-z0-9]+")).filter { it.length > 1 }.toSet()
+        }
+        val qTokens = tokenize(query)
+        val cTokens = tokenize(candidate)
+        if (qTokens.isEmpty() || cTokens.isEmpty()) return false
+        if (qTokens == cTokens) return true
+        val intersection = qTokens.intersect(cTokens)
+        return intersection.size.toDouble() / qTokens.size >= 0.7 && intersection.isNotEmpty()
+    }
+
     private suspend fun resolveImdbId(query: String, isSeries: Boolean): String? {
         val metaAddons = getEnabledMetadataAddons()
         for (addon in metaAddons) {
@@ -470,7 +589,13 @@ object StremioAddonManager {
                 val jsonText = app.get(searchUrl, timeout = 5000L).text
                 val root = mapper.readTree(jsonText)
                 val metas = root["metas"]
-                val id = metas?.firstOrNull { it["id"]?.asText()?.startsWith("tt") == true }?.get("id")?.asText()
+                val matchedMeta = metas?.firstOrNull { meta ->
+                    val metaId = meta["id"]?.asText() ?: return@firstOrNull false
+                    if (!metaId.startsWith("tt")) return@firstOrNull false
+                    val metaName = meta["name"]?.asText() ?: return@firstOrNull false
+                    isTitleMatch(clean, metaName)
+                }
+                val id = matchedMeta?.get("id")?.asText()
                 if (id != null) {
                     AppLogger.d(TAG, "Resolved '$query' -> $id via ${addon.name}")
                     return id

@@ -66,6 +66,19 @@ fun SettingsNetwork(viewModel: SettingsViewModel) {
                 onEvent = viewModel::onEvent,
                 defaultValue = 0,
             )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            MviSettingsToggle(
+                key = NetworkConfig.PREF_DOH_AUTO_FALLBACK,
+                label = "Automatic System DNS Fallback",
+                subtitle = "If your selected DoH provider times out (>2.5s) or is blocked by your network, automatically resolve via System DNS with a 60s cooldown to prevent 20+ second connection freezes.",
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                defaultValue = true,
+            )
         }
 
         SettingsGroupCard(title = "Experimental & Scraper Engine") {

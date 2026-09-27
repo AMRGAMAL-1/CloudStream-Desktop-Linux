@@ -512,11 +512,17 @@ object LocalStreamProxy {
             }
             keysToRemove.forEach { mergedHeaders.remove(it) }
 
-            val isM3u8Url = url.contains(".m3u8", ignoreCase = true) ||
-                url.contains(".m3u", ignoreCase = true) ||
-                url.contains("m3u8", ignoreCase = true) ||
-                url.contains("playlist", ignoreCase = true) ||
-                url.contains("manifest", ignoreCase = true)
+            val parsedUri = try { java.net.URI(url) } catch (_: Exception) { null }
+            val path = (parsedUri?.path ?: url.substringBefore('?')).lowercase()
+            val query = (parsedUri?.query ?: url.substringAfter('?', "")).lowercase()
+            val isM3u8Url = path.endsWith(".m3u8") ||
+                path.endsWith(".m3u") ||
+                path.contains(".m3u8") ||
+                path.contains("/playlist") ||
+                path.contains("/manifest") ||
+                query.contains(".m3u8") ||
+                query.contains("format=m3u8") ||
+                query.contains("type=m3u8")
 
             if (!isM3u8Url) {
                 // Request identity encoding to prevent CDNs from compressing binary video/audio segments,
@@ -708,26 +714,20 @@ object LocalStreamProxy {
                 rawContentType.contains("text/", ignoreCase = true) ||
                 (rawContentType.contains("image/", ignoreCase = true) && !rawContentType.contains("mpegurl", ignoreCase = true))
             val contentTypeStr = if (isNonMediaType) "application/octet-stream" else rawContentType
-            val isM3u8 = url.contains(".m3u8", ignoreCase = true) ||
-                url.contains(".m3u", ignoreCase = true) ||
-                url.contains("m3u8", ignoreCase = true) ||
-                url.contains("playlist", ignoreCase = true) ||
-                url.contains("manifest", ignoreCase = true) ||
-                rawContentType.contains("mpegurl", ignoreCase = true) ||
-                rawContentType.contains("x-mpegURL", ignoreCase = true) ||
-                withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val s = response.body?.source()
-                        if (s != null && s.request(32)) {
-                            val peeked = s.peek().readUtf8(32).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
-                            peeked.startsWith("#EXTM3U", ignoreCase = true) || peeked.startsWith("#EXT-X-", ignoreCase = true)
-                        } else {
-                            false
-                        }
-                    } catch (e: Exception) {
+            val isM3u8 = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val s = response.body?.source()
+                    if (s != null && s.request(1)) {
+                        val peekLen = minOf(64L, s.buffer.size)
+                        val peeked = s.peek().readUtf8(peekLen).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
+                        peeked.startsWith("#EXTM3U", ignoreCase = true) || peeked.startsWith("#EXT-X-", ignoreCase = true)
+                    } else {
                         false
                     }
+                } catch (e: Exception) {
+                    false
                 }
+            }
 
             if (isM3u8) {
                 try {
@@ -1052,11 +1052,18 @@ object LocalStreamProxy {
                 }
             }
         } catch (e: Exception) {
-            AppLogger.e("Proxy:LocalStream", "LocalStreamProxy error", e)
-            try {
-                call.respond(HttpStatusCode.InternalServerError)
-            } catch (ex: Exception) {
-                com.lagradost.common.logging.AppLogger.e("Proxy:LocalStream", "Failed to send 500 status to client", ex)
+            val isChannelClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
+                e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                (e is java.io.IOException && e.message?.contains("Broken pipe", ignoreCase = true) == true)
+            if (isChannelClosed) {
+                AppLogger.d("Proxy:LocalStream", "Client disconnected from stream (normal player seek or exit)")
+            } else {
+                AppLogger.e("Proxy:LocalStream", "LocalStreamProxy error: ${e.message}", e)
+                try {
+                    call.respond(HttpStatusCode.InternalServerError)
+                } catch (ex: Exception) {
+                    com.lagradost.common.logging.AppLogger.e("Proxy:LocalStream", "Failed to send 500 status to client", ex)
+                }
             }
         }
     }

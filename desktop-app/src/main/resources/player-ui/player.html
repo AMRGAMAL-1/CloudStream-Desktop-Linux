@@ -20,7 +20,7 @@
 /* CSS_INJECT */
     </style>
 </head>
-<body style="background: transparent; margin: 0; padding: 0;">
+<body class="hidden-controls" style="background: transparent; margin: 0; padding: 0;">
 
 <!-- ── PiP Overlay ───────────────────────────────────────────── -->
 <div id="pipOverlay" class="pip-overlay" style="display: none;">
@@ -278,23 +278,7 @@
             <div class="cs-popover-col-body" id="serversList"></div>
         </div>
     </div>
-    <!-- Footer: Playback Speed Chips & Settings Shortcut -->
-    <div class="cs-popover-footer" id="popoverSpeedFooter">
-        <span class="cs-footer-label">SPEED</span>
-        <div class="cs-speed-chips-row" id="speedChipsRow">
-            <button class="cs-speed-chip" data-speed="0.5">0.5x</button>
-            <button class="cs-speed-chip" data-speed="0.75">0.75x</button>
-            <button class="cs-speed-chip active" data-speed="1.0">1x</button>
-            <button class="cs-speed-chip" data-speed="1.25">1.25x</button>
-            <button class="cs-speed-chip" data-speed="1.5">1.5x</button>
-            <button class="cs-speed-chip" data-speed="2.0">2x</button>
-        </div>
-        <button class="cs-popover-gear-btn" id="popoverGearBtn" title="Advanced Playback Settings">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-            </svg>
-        </button>
-    </div>
+
 </div>
 
 <!-- ── Audio & Subtitles Modal ──────────────────────────────────────── -->
@@ -796,43 +780,35 @@
         </div>
     </div>
 </div>
-<!-- ── Playback Speed Panel ────────────────────────────────────────────── -->
-<div id="speedPanel" class="panel">
-    <div class="panel-header" style="justify-content: space-between;">
-        <h2>Playback Speed</h2>
-        <button class="close-btn" id="closeSpeedBtn">✕</button>
+<!-- ── Playback Speed Popover (Simple & Compact) ─────────────────────── -->
+<div id="speedPanel" class="panel speed-compact-popover">
+    <div class="speed-compact-header">
+        <span>Playback speed</span>
+        <button class="speed-compact-close" id="closeSpeedBtn" title="Close (Esc)">✕</button>
     </div>
-    <div class="panel-body" style="padding: 16px 20px;">
-        <div class="settings-section" style="border-bottom: none; padding-bottom: 0;">
-            <!-- Speed Preset Chips -->
-            <div class="chip-row" id="speedChips" style="margin-bottom: 16px;">
-                <div class="chip" data-speed="0.5">0.5×</div>
-                <div class="chip" data-speed="0.75">0.75×</div>
-                <div class="chip active" data-speed="1.0">1.0× Normal</div>
-                <div class="chip" data-speed="1.25">1.25×</div>
-                <div class="chip" data-speed="1.5">1.5×</div>
-                <div class="chip" data-speed="2.0">2.0×</div>
+    <div class="speed-compact-body">
+        <div class="speed-compact-val" id="speedHeroDisplay" title="Click to reset to 1.0x">1.00x</div>
+        
+        <div class="speed-compact-slider-row">
+            <button id="speedDecBtn" class="speed-compact-step-btn" title="Decrease (−0.05x)">−</button>
+            <div class="speed-compact-slider-wrap">
+                <input type="range" class="speed-compact-slider" id="speedSlider" min="0.25" max="4.0" step="0.05" value="1.0">
             </div>
-
-            <!-- Custom Speed Stepper & Slider -->
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div class="settings-label" style="margin-bottom: 0;">Fine Tuning</div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <button id="speedDecPanelBtn" class="sync-btn" title="Decrease Speed (−0.25×)">−</button>
-                    <span id="speedSliderVal" class="sync-val" title="Click to reset to 1.0×" style="font-size: 14px; font-weight: 600; cursor: pointer; color: white;">1.0×</span>
-                    <button id="speedIncPanelBtn" class="sync-btn" title="Increase Speed (+0.25×)">+</button>
-                </div>
-            </div>
-
-            <div class="desktop-slider-container" style="max-width: 100%; width: 100%; margin-top: 6px;">
-                <input type="range" class="desktop-slider" id="speedSlider" min="-6" max="6" step="1" value="0">
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 10.5px; opacity: 0.5; margin-top: 6px; padding: 0 2px;">
-                <span>0.25×</span>
-                <span>1.0×</span>
-                <span>3.0×</span>
-            </div>
+            <button id="speedIncBtn" class="speed-compact-step-btn" title="Increase (+0.05x)">+</button>
         </div>
+
+        <div class="speed-compact-pills-row" id="speedChipsRow">
+            <button class="speed-compact-pill" data-speed="0.25">0.25</button>
+            <button class="speed-compact-pill" data-speed="0.5">0.5</button>
+            <button class="speed-compact-pill" data-speed="0.75">0.75</button>
+            <button class="speed-compact-pill active" data-speed="1.0">1.0</button>
+            <button class="speed-compact-pill" data-speed="1.25">1.25</button>
+            <button class="speed-compact-pill" data-speed="1.5">1.5</button>
+            <button class="speed-compact-pill" data-speed="2.0">2.0</button>
+            <button class="speed-compact-pill" data-speed="3.0">3.0</button>
+        </div>
+
+        <button id="btnResetSpeed" class="speed-compact-reset-btn" title="Reset playback speed to 1.0x">Reset to Normal (1.0x)</button>
     </div>
 </div>
 
@@ -876,7 +852,7 @@
         </div>
     </div>
 
-<div id="overlay" class="hide-main-ui">
+<div id="overlay" class="hide-main-ui hidden-controls">
     <!-- Click Zones -->
     <div class="click-zones">
         <div class="click-zone" id="zoneLeft"></div>
@@ -1064,6 +1040,12 @@
                         <svg viewBox="0 0 24 24" fill="currentColor">
                             <path d="M19 11h-8v6h8v-6zm4 8V4.98C23 3.88 22.1 3 21 3H3c-1.1 0-2 .88-2 1.98V19c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 .02H3V4.97h18v14.05z"/>
                         </svg>
+                    </button>
+                    <button id="speedBtn" class="icon-btn speed-btn" title="Playback Speed (Hotkey: [ / ])">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.28-10.43zM10.59 15.41a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/>
+                        </svg>
+                        <span id="speedBadge" class="speed-pill-badge" style="display: none;">1×</span>
                     </button>
                     <button id="settingsBtn" class="icon-btn" title="Playback Settings">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>

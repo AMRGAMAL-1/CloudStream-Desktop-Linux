@@ -222,7 +222,7 @@ fun BaseMpvPlayer(
         }
     }
 
-    LaunchedEffect(link, isEngineReady, reloadKey) {
+    LaunchedEffect(link?.url, isEngineReady, reloadKey) {
         if (!isEngineReady) return@LaunchedEffect
 
         if (link == null) {
@@ -238,6 +238,7 @@ fun BaseMpvPlayer(
             try {
                 com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.transformLink(link)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 currentOnPlaybackError("Torrent Stream Error: ${e.message}")
                 return@LaunchedEffect
             }
@@ -262,6 +263,7 @@ fun BaseMpvPlayer(
                     }
                     engine.configureYtDlpIfInstalled()
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     currentOnPlaybackError("Stream Resolver Error: ${e.message}")
                     return@LaunchedEffect
                 }

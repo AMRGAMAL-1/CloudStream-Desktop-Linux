@@ -16,7 +16,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.URLEncoder
+
+enum class TorrentPlayability {
+    READY,
+    NEEDS_P2P_ENABLED,
+    NEEDS_TORRSERVER_INSTALL,
+}
 
 data class P2pLiveTelemetry(
     val active: Boolean = false,
@@ -42,6 +51,11 @@ object DesktopTorrentEngine {
     private var pollingJob: Job? = null
     private var currentHash: String? = null
 
+    private val transformMutex = Mutex()
+    private var inFlightTransformJob: kotlinx.coroutines.Deferred<ExtractorLink>? = null
+    private var inFlightTransformUrl: String? = null
+    private var cachedResolvedLink: ExtractorLink? = null
+
     val isP2pEnabled: Boolean
         get() = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_P2P_ENABLED) ?: false
 
@@ -54,29 +68,99 @@ object DesktopTorrentEngine {
                 provider.mainUrl.contains("torrent", ignoreCase = true)
     }
 
-    fun isTorrentLink(link: ExtractorLink): Boolean {
-        val url = link.url.trim()
-        return link.type == ExtractorLinkType.TORRENT ||
-                link.type == ExtractorLinkType.MAGNET ||
-                url.startsWith("magnet:", ignoreCase = true) ||
-                url.contains("magnet:?xt=", ignoreCase = true) ||
-                url.endsWith(".torrent", ignoreCase = true) ||
-                (url.length == 40 && url.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' })
+    fun isTorrentUrl(rawUrl: String?): Boolean {
+        if (rawUrl.isNullOrBlank()) return false
+        val url = rawUrl.trim()
+        val lower = url.lowercase(java.util.Locale.ROOT)
+        return lower.startsWith("magnet:") ||
+                lower.contains("magnet:?xt=") ||
+                lower.contains("xt=urn:btih:") ||
+                lower.contains("urn:btih:") ||
+                lower.contains("info_hash=") ||
+                lower.endsWith(".torrent") ||
+                lower.contains(".torrent?") ||
+                lower.contains("127.0.0.1:8091") ||
+                lower.contains("localhost:8091") ||
+                lower.contains("/torrent/play") ||
+                lower.contains("/play/torrent") ||
+                ((url.length == 40 || url.length == 32) && url.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' })
+    }
+
+    fun isTorrentLink(link: ExtractorLink?): Boolean {
+        if (link == null) return false
+        if (link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET) return true
+        if (isTorrentUrl(link.url)) return true
+        if (link.extractorData?.contains("torrent", ignoreCase = true) == true ||
+            link.extractorData?.contains("magnet", ignoreCase = true) == true) return true
+        val lowerName = link.name.lowercase(java.util.Locale.ROOT)
+        return lowerName.contains("[torrent]") || lowerName.contains(" p2p") || lowerName.contains("[p2p]")
+    }
+
+    fun checkTorrentPlayability(link: ExtractorLink?): TorrentPlayability {
+        if (!isTorrentLink(link)) return TorrentPlayability.READY
+        if (!isP2pEnabled) return TorrentPlayability.NEEDS_P2P_ENABLED
+        if (!binary.isInstalled()) return TorrentPlayability.NEEDS_TORRSERVER_INSTALL
+        return TorrentPlayability.READY
     }
 
     suspend fun transformLink(link: ExtractorLink): ExtractorLink = withContext(Dispatchers.IO) {
-        if (!isP2pEnabled) {
-            AppLogger.w("DesktopTorrentEngine: P2P Torrent Streaming is disabled in settings. Blocking playback.")
-            throw IllegalStateException("P2P Torrent Streaming is disabled. Please enable it in Settings to stream torrents.")
+        val rawUrl = link.url.trim()
+        if (rawUrl.contains("/stream?") || rawUrl.contains("/stream/")) {
+            AppLogger.i("DesktopTorrentEngine stream already transformed: $rawUrl")
+            return@withContext link
         }
 
-        val rawUrl = link.url.trim()
+        if (!isP2pEnabled) {
+            AppLogger.w("DesktopTorrentEngine: P2P Torrent Streaming is disabled in settings. Blocking playback.")
+            throw IllegalStateException("P2P Torrent Streaming is disabled. Please enable it in Settings > Network to stream torrents.")
+        }
+
+        if (!binary.isInstalled()) {
+            AppLogger.w("DesktopTorrentEngine: TorrServer engine is not installed on disk. Blocking playback.")
+            throw IllegalStateException("TorrServer engine is required for torrent playback. Please install it in Settings > Updates.")
+        }
+
+        val jobToAwait = transformMutex.withLock {
+            if (inFlightTransformUrl == rawUrl) {
+                cachedResolvedLink?.let {
+                    AppLogger.i("DesktopTorrentEngine: Reusing cached resolved stream for $rawUrl")
+                    return@withContext it
+                }
+                if (inFlightTransformJob?.isActive == true) {
+                    AppLogger.i("DesktopTorrentEngine: Joining in-flight transform for $rawUrl")
+                    return@withLock inFlightTransformJob
+                }
+            }
+
+            inFlightTransformJob?.cancel()
+            cachedResolvedLink = null
+            val deferred = scope.async {
+                doTransformLink(link, rawUrl)
+            }
+            inFlightTransformJob = deferred
+            inFlightTransformUrl = rawUrl
+            deferred
+        }
+
+        val resolved = jobToAwait!!.await()
+        transformMutex.withLock {
+            if (inFlightTransformUrl == rawUrl) {
+                cachedResolvedLink = resolved
+            }
+        }
+        resolved
+    }
+
+    private suspend fun doTransformLink(link: ExtractorLink, rawUrl: String): ExtractorLink {
         val magnetLink = when {
-            rawUrl.contains("magnet:?xt=", ignoreCase = true) -> {
-                "magnet:?xt=" + rawUrl.substringAfter("magnet:?xt=")
+            rawUrl.contains("magnet:?", ignoreCase = true) -> {
+                "magnet:?" + rawUrl.substringAfter("magnet:?")
             }
             rawUrl.length == 40 && rawUrl.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' } -> {
                 buildMagnetUri(rawUrl)
+            }
+            rawUrl.contains("xt=urn:btih:", ignoreCase = true) -> {
+                "magnet:?xt=urn:btih:" + rawUrl.substringAfter("xt=urn:btih:")
             }
             else -> rawUrl
         }
@@ -138,7 +222,7 @@ object DesktopTorrentEngine {
 
         startStatsPolling(hash)
 
-        newExtractorLink(
+        return newExtractorLink(
             source = link.source,
             name = link.name,
             url = streamUrl,
@@ -187,6 +271,10 @@ object DesktopTorrentEngine {
     }
 
     fun stopStream() {
+        inFlightTransformJob?.cancel()
+        inFlightTransformJob = null
+        inFlightTransformUrl = null
+        cachedResolvedLink = null
         pollingJob?.cancel()
         pollingJob = null
         val hash = currentHash
@@ -218,5 +306,17 @@ object DesktopTorrentEngine {
             sb.append("&tr=").append(URLEncoder.encode(tr, "UTF-8"))
         }
         return sb.toString()
+    }
+
+    fun extractInfoHash(uri: String?): String? {
+        if (uri.isNullOrBlank()) return null
+        val lower = uri.lowercase()
+        val match = Regex("urn:btih:([a-f0-9]{40}|[a-z2-7]{32})").find(lower)
+        if (match != null) return match.groupValues[1]
+        val trimmed = uri.trim()
+        if ((trimmed.length == 40 || trimmed.length == 32) && trimmed.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }) {
+            return trimmed.lowercase()
+        }
+        return null
     }
 }

@@ -59,11 +59,14 @@ object UniversalCrossProviderAggregator {
                 launch(Dispatchers.IO) {
                     try {
                         AppLogger.d("UniversalCrossProviderAggregator: Querying Stremio stream addons for '${request.title}' (imdb=${request.imdbId})")
+                        val isSeries = request.tvType == TvType.TvSeries || request.tvType == TvType.Anime || request.season != null || request.episode != null
                         StremioAddonManager.searchStreams(
                             imdbId = request.imdbId,
                             season = request.season,
                             episode = request.episode,
                             title = request.title,
+                            mediaId = request.primaryUrl ?: request.imdbId,
+                            isSeries = isSeries,
                             onLink = { link ->
                                 launch { send(link) }
                             },

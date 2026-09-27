@@ -61,7 +61,7 @@ sealed interface PlayerInboundEvent {
     data class SetSubtitleBlur(val blur: String) : PlayerInboundEvent
     data class SetSubtitleBold(val bold: String) : PlayerInboundEvent
     data class SetSubtitleItalic(val italic: String) : PlayerInboundEvent
-    data class SearchSubtitles(val query: String, val lang: String?, val season: Int?, val episode: Int?) : PlayerInboundEvent
+    data class SearchSubtitles(val query: String, val lang: String?, val season: Int?, val episode: Int?, val imdbId: String? = null) : PlayerInboundEvent
     data class DownloadSubtitle(val idPrefix: String, val data: String, val name: String, val lang: String, val source: String) : PlayerInboundEvent
     data object OpenLocalSubtitlePicker : PlayerInboundEvent
     data class LoadLocalSubtitleFile(val path: String) : PlayerInboundEvent
@@ -224,6 +224,7 @@ sealed interface PlayerInboundEvent {
                     lang = parsed["lang"]?.asText()?.takeIf { it.isNotBlank() },
                     season = parsed["season"]?.asText()?.toIntOrNull(),
                     episode = parsed["episode"]?.asText()?.toIntOrNull(),
+                    imdbId = parsed["imdbId"]?.asText()?.takeIf { it.isNotBlank() },
                 )
             } catch (t: Throwable) {
                 AppLogger.e("Player:IPC", "Failed to parse searchSubtitles payload: $rawPayload", t)

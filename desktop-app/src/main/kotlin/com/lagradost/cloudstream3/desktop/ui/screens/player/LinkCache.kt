@@ -12,8 +12,8 @@ object LinkCache {
     )
 
     private val cache = ConcurrentHashMap<String, CachedLinks>()
-    private const val CACHE_DURATION_MS = 5 * 60 * 1000L // 5 minutes
-    private const val MAX_ENTRIES = 20
+    private const val CACHE_DURATION_MS = 20 * 60 * 1000L // 20 minutes
+    private const val MAX_ENTRIES = 50
 
     fun get(episodeId: String): CachedLinks? {
         val entry = cache[episodeId] ?: return null
@@ -32,9 +32,7 @@ object LinkCache {
         cache.clear()
     }
 
-    fun set(episodeId: String, links: List<ExtractorLink>, subtitles: List<SubtitleFile>) {
-        val now = System.currentTimeMillis()
-
+    private fun prune(now: Long) {
         // 1. Prune all expired entries
         cache.entries.removeIf { now - it.value.timestamp > CACHE_DURATION_MS }
 
@@ -45,12 +43,46 @@ object LinkCache {
                 cache.remove(oldestKey)
             }
         }
+    }
 
-        // 3. Store new entry
-        cache[episodeId] = CachedLinks(
+    fun set(episodeId: String, links: List<ExtractorLink>, subtitles: List<SubtitleFile>) {
+        set(listOf(episodeId), links, subtitles)
+    }
+
+    fun set(keys: Collection<String>, links: List<ExtractorLink>, subtitles: List<SubtitleFile>) {
+        val validKeys = keys.filter { it.isNotBlank() }
+        if (validKeys.isEmpty()) return
+        val now = System.currentTimeMillis()
+        prune(now)
+        val entry = CachedLinks(
             links = links,
             subtitles = subtitles,
             timestamp = now,
         )
+        validKeys.forEach { cache[it] = entry }
+    }
+
+    fun addLinks(keys: Collection<String>, newLinks: List<ExtractorLink>, newSubtitles: List<SubtitleFile> = emptyList()) {
+        val validKeys = keys.filter { it.isNotBlank() }
+        if (validKeys.isEmpty() || (newLinks.isEmpty() && newSubtitles.isEmpty())) return
+        val now = System.currentTimeMillis()
+        val existing = validKeys.firstNotNullOfOrNull { cache[it] }
+        val mergedLinks = if (existing != null) {
+            (existing.links + newLinks).distinctBy { it.url }
+        } else {
+            newLinks.distinctBy { it.url }
+        }
+        val mergedSubs = if (existing != null) {
+            (existing.subtitles + newSubtitles).distinctBy { it.url }
+        } else {
+            newSubtitles.distinctBy { it.url }
+        }
+        prune(now)
+        val entry = CachedLinks(
+            links = mergedLinks,
+            subtitles = mergedSubs,
+            timestamp = now,
+        )
+        validKeys.forEach { cache[it] = entry }
     }
 }

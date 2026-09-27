@@ -5,6 +5,7 @@ import com.sun.jna.Pointer
 
 object PlayerConfig {
     const val PREF_HWDEC = "player_hwdec"
+    const val PREF_GPU_API = "player_gpu_api"
     const val PREF_AUDIO_NORMALIZATION = "player_audio_normalization"
     const val PREF_AUDIO_NORM_STRENGTH = "player_audio_norm_strength"
     const val PREF_AUDIO_VOLUME_MAX = "player_audio_volume_max"
@@ -105,6 +106,9 @@ object PlayerConfig {
         // Hardware Acceleration — let MPV auto-detect the best decoder with safe recovery fallback.
         val hwdec = DesktopDataStore.getKey<String>(PREF_HWDEC) ?: "auto-safe"
         lib.mpv_set_option_string(handle, "hwdec", hwdec)
+
+        val gpuApi = DesktopDataStore.getKey<String>(PREF_GPU_API) ?: "d3d11"
+        lib.mpv_set_option_string(handle, "gpu-api", gpuApi)
 
         // Native Language Track Priorities (slang / alang)
         val subEnabled = DesktopDataStore.getKey<Boolean>(PREF_SUB_ENABLED)

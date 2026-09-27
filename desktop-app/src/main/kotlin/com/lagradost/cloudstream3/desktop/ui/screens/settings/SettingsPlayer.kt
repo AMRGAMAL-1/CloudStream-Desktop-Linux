@@ -49,10 +49,12 @@ fun SettingsPlayerHubScreen(
 
     // Live state computations for dynamic badges
     val hwdec = uiState.stringSettings[PlayerConfig.PREF_HWDEC] ?: "auto-safe"
-    val hwdecBadge = when (hwdec) {
-        "auto-safe" -> "Auto-Safe GPU"
-        "auto-copy" -> "Auto-Copy GPU"
-        "no" -> "Software CPU"
+    val gpuApi = uiState.stringSettings[PlayerConfig.PREF_GPU_API] ?: "d3d11"
+    val hwdecBadge = when {
+        gpuApi == "opengl" -> "OpenGL • GPU"
+        hwdec == "auto-safe" -> "Auto-Safe GPU"
+        hwdec == "auto-copy" -> "Auto-Copy GPU"
+        hwdec == "no" -> "Software CPU"
         else -> "Hardware Accel"
     }
 
@@ -176,6 +178,22 @@ fun SettingsPlayerRenderingScreen(viewModel: SettingsViewModel) {
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
                 defaultValue = "auto-safe",
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            MviSettingsDropdown(
+                key = PlayerConfig.PREF_GPU_API,
+                label = "Graphics Rendering API",
+                subtitle = "Low-level graphics pipeline (switch to OpenGL if you experience black screens on fullscreen)",
+                options = listOf(
+                    "d3d11" to "Direct3D 11 (Recommended / Fast)",
+                    "opengl" to "OpenGL (Fallback for older GPUs)",
+                    "auto" to "Auto (System Negotiated)",
+                ),
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                defaultValue = "d3d11",
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

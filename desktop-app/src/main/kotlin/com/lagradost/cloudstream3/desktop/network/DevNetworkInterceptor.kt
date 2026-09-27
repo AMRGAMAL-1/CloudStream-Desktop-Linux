@@ -48,10 +48,11 @@ class DevNetworkInterceptor : Interceptor {
             response = chain.proceed(request)
         } catch (e: Exception) {
             val durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs)
+            val isCanceled = chain.call().isCanceled() || e.message?.contains("Canceled", ignoreCase = true) == true
             NetworkTrafficBuffer.recordComplete(
                 id = requestId,
                 statusCode = -1,
-                statusMessage = "Network Failed",
+                statusMessage = if (isCanceled) "Canceled" else "Network Failed",
                 durationMs = durationMs,
                 responseHeaders = emptyMap(),
                 responseBody = null,
@@ -59,6 +60,11 @@ class DevNetworkInterceptor : Interceptor {
                 contentType = null,
                 error = e.message ?: e.javaClass.simpleName,
             )
+            if (isCanceled && e !is java.io.InterruptedIOException) {
+                val interrupted = java.io.InterruptedIOException(e.message ?: "Canceled")
+                interrupted.initCause(e)
+                throw interrupted
+            }
             throw e
         }
 

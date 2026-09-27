@@ -3,22 +3,29 @@ package com.lagradost.cloudstream3.desktop.ui.screens
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +44,9 @@ import com.lagradost.cloudstream3.desktop.ui.components.DesktopUi
 import com.lagradost.cloudstream3.desktop.ui.screens.links.StreamLinkCard
 import com.lagradost.cloudstream3.desktop.ui.screens.links.dialogs.DownloadConfirmationDialog
 import com.lagradost.cloudstream3.desktop.ui.components.P2pTorrentDisclaimerDialog
+import com.lagradost.cloudstream3.desktop.ui.components.TorrServerInstallRequiredDialog
+import com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine
+import com.lagradost.cloudstream3.desktop.torrent.TorrentPlayability
 import com.lagradost.cloudstream3.desktop.ui.screens.links.LinksViewModel
 import com.lagradost.cloudstream3.desktop.ui.screens.links.contract.LinksUiEffect
 import com.lagradost.cloudstream3.desktop.ui.screens.links.contract.LinksUiEvent
@@ -87,9 +97,11 @@ fun LinksSidePanel(
     val currentPlayingUrl = uiState.currentPlayingUrl
     val selectedQuality = uiState.selectedQuality
     val selectedFormat = uiState.selectedFormat
+    val selectedSource = uiState.selectedSource
     val isP2pEnabled = uiState.isP2pEnabled
     var showPriorityDialog by remember { mutableStateOf(false) }
     var p2pDisclaimerTargetAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var torrServerInstallTargetAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     LaunchedEffect(viewModel) {
         viewModel.effectFlow.collect { effect ->
@@ -127,6 +139,21 @@ fun LinksSidePanel(
         }
     }
 
+    val availableSources = remember(links, provider.name) {
+        val groups = links.groupBy { link ->
+            val src = link.source.trim()
+            if (src.isNotBlank()) src else provider.name
+        }
+        groups.map { (srcName, list) ->
+            val isAddon = list.any { it.name.startsWith("⚡") } || !srcName.equals(provider.name, ignoreCase = true)
+            SourceOption(
+                name = srcName,
+                count = list.size,
+                isAddon = isAddon,
+            )
+        }.sortedWith(compareByDescending<SourceOption> { it.count }.thenBy { it.name })
+    }
+
     val availableQualities = remember(links) {
         links.groupBy { com.lagradost.cloudstream3.desktop.player.QualityDataHelper.extractEffectiveQuality(it) }
             .map { (qual, list) ->
@@ -143,9 +170,7 @@ fun LinksSidePanel(
         val totalDirect = links.count { link ->
             val isHls = link.isM3u8 || link.name.contains("HLS", ignoreCase = true) || link.url.contains(".m3u8")
             val isDash = link.isDash || link.name.contains("DASH", ignoreCase = true) || link.url.contains(".mpd")
-            val isTorrent = link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.TORRENT ||
-                link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.MAGNET ||
-                link.url.startsWith("magnet:")
+            val isTorrent = DesktopTorrentEngine.isTorrentLink(link)
             !isHls && !isDash && !isTorrent
         }
         val totalHls = links.count { link ->
@@ -155,9 +180,7 @@ fun LinksSidePanel(
             link.isDash || link.name.contains("DASH", ignoreCase = true) || link.url.contains(".mpd")
         }
         val totalTorrent = links.count { link ->
-            link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.TORRENT ||
-                link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.MAGNET ||
-                link.url.startsWith("magnet:")
+            DesktopTorrentEngine.isTorrentLink(link)
         }
 
         val list = mutableListOf<FormatOption>()
@@ -169,15 +192,16 @@ fun LinksSidePanel(
         list
     }
 
-    val filteredLinks = remember(links, selectedQuality, selectedFormat) {
+    val filteredLinks = remember(links, selectedQuality, selectedFormat, selectedSource) {
         links.filter { link ->
+            val linkSrc = link.source.trim().ifBlank { provider.name }
+            val sourceMatches = selectedSource == null || linkSrc.equals(selectedSource, ignoreCase = true)
+
             val effQual = com.lagradost.cloudstream3.desktop.player.QualityDataHelper.extractEffectiveQuality(link)
             val qualityMatches = selectedQuality == null || effQual == selectedQuality
             val isHls = link.isM3u8 || link.name.contains("HLS", ignoreCase = true) || link.url.contains(".m3u8")
             val isDash = link.isDash || link.name.contains("DASH", ignoreCase = true) || link.url.contains(".mpd")
-            val isTorrent = link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.TORRENT ||
-                link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.MAGNET ||
-                link.url.startsWith("magnet:")
+            val isTorrent = DesktopTorrentEngine.isTorrentLink(link)
             val isDirect = !isHls && !isDash && !isTorrent
 
             val formatMatches = when (selectedFormat) {
@@ -187,12 +211,26 @@ fun LinksSidePanel(
                 StreamFormatFilter.DASH -> isDash
                 StreamFormatFilter.TORRENT -> isTorrent
             }
-            qualityMatches && formatMatches
+            sourceMatches && qualityMatches && formatMatches
         }
     }
 
     LaunchedEffect(dataUrl) {
-        viewModel.onEvent(LinksUiEvent.OnScrape(provider, dataUrl))
+        val showTitle = history.showName.takeIf { it.isNotBlank() } ?: loadResponse?.name
+        val isSeries = loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
+            loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
+            history.season != null ||
+            history.episode != null
+        viewModel.onEvent(
+            LinksUiEvent.OnScrape(
+                provider = provider,
+                dataUrl = dataUrl,
+                title = showTitle,
+                isSeries = isSeries,
+                season = history.season,
+                episode = history.episode,
+            )
+        )
     }
 
     val vlcState = vlcPlayer.state.collectAsState().value
@@ -309,7 +347,38 @@ fun LinksSidePanel(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    IconButton(
+                        onClick = {
+                            val showTitle = history.showName.takeIf { it.isNotBlank() } ?: loadResponse?.name
+                            val isSeries = loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
+                                loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
+                                history.season != null ||
+                                history.episode != null
+                            viewModel.onEvent(
+                                LinksUiEvent.OnScrape(
+                                    provider = provider,
+                                    dataUrl = dataUrl,
+                                    title = showTitle,
+                                    forceRefresh = true,
+                                    isSeries = isSeries,
+                                    season = history.season,
+                                    episode = history.episode,
+                                )
+                            )
+                        },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh Streams",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     IconButton(
                         onClick = onClose,
@@ -324,41 +393,264 @@ fun LinksSidePanel(
                     }
                 }
 
-                HorizontalDivider(color = DesktopUi.Divider)
+                HorizontalDivider(color = DesktopUi.Divider.copy(alpha = 0.5f))
 
-                // Status & Search Bar
-                StreamStatusCard(
-                    statusText = statusText,
-                    isLoading = isScraping || isLaunchingPlayer,
-                    isScraping = isScraping,
-                    onStop = { viewModel.onEvent(LinksUiEvent.OnCancelScrape) },
-                )
-
-                // Player Selector
-                PlayerSelector(
-                    selectedPlayer = selectedPlayer,
-                    onSelect = { player -> viewModel.onEvent(LinksUiEvent.OnPreferredPlayerChanged(player)) },
-                )
-
-                // Dual Quality & Format Filter Selector
-                if (availableQualities.isNotEmpty()) {
-                    QualitySelector(
-                        totalLinkCount = links.size,
-                        availableQualities = availableQualities,
-                        selectedQuality = selectedQuality,
-                        onSelect = { viewModel.onEvent(LinksUiEvent.OnFilterQuality(it)) },
-                        onOpenPriorityDialog = { showPriorityDialog = true },
-                        availableFormats = availableFormats,
-                        selectedFormat = selectedFormat,
-                        onSelectFormat = { viewModel.onEvent(LinksUiEvent.OnFilterFormat(it)) },
+                // Scraping Progress & Slim Status
+                if (isScraping) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DesktopUi.TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        TextButton(
+                            onClick = { viewModel.onEvent(LinksUiEvent.OnCancelScrape) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(24.dp),
+                        ) {
+                            Text("Stop", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (isLaunchingPlayer) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesktopUi.TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                // Unified Desktop Control & Source Filter Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Player Selector Toggle (MPV / VLC)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DesktopUi.Divider.copy(alpha = 0.35f)),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            listOf("mpv" to "MPV", "vlc" to "VLC").forEach { (id, label) ->
+                                val isSel = selectedPlayer == id
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSel) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { viewModel.onEvent(LinksUiEvent.OnPreferredPlayerChanged(id)) },
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSel) MaterialTheme.colorScheme.onPrimary else DesktopUi.TextMuted,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Addon / Provider Source Chips
+                    val sourceScrollState = rememberScrollState()
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(sourceScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FilterChip(
+                            selected = selectedSource == null,
+                            onClick = { viewModel.onEvent(LinksUiEvent.OnFilterSource(null)) },
+                            label = {
+                                Text(
+                                    "All Sources (${links.size})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (selectedSource == null) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        )
+
+                        availableSources.forEach { source ->
+                            val isSelected = selectedSource.equals(source.name, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.onEvent(LinksUiEvent.OnFilterSource(if (isSelected) null else source.name)) },
+                                leadingIcon = {
+                                    Icon(
+                                        if (source.isAddon) Icons.Default.Extension else Icons.Default.Public,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        "${source.name} (${source.count})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f),
+                                    selectedLabelColor = MaterialTheme.colorScheme.secondary,
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Priority Settings Icon Button
+                    IconButton(
+                        onClick = { showPriorityDialog = true },
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "Source Priorities",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+
+                // Quality & Protocol Filter Strip
+                if (availableQualities.isNotEmpty() || availableFormats.size > 1) {
+                    val filterScrollState = rememberScrollState()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 2.dp)
+                            .horizontalScroll(filterScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (availableQualities.isNotEmpty()) {
+                            FilterChip(
+                                selected = selectedQuality == null,
+                                onClick = { viewModel.onEvent(LinksUiEvent.OnFilterQuality(null)) },
+                                label = {
+                                    Text(
+                                        "All Qualities",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (selectedQuality == null) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = DesktopUi.AccentSoft,
+                                    selectedLabelColor = DesktopUi.Accent,
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+
+                            availableQualities.forEach { option ->
+                                val isSel = selectedQuality == option.qualityValue
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { viewModel.onEvent(LinksUiEvent.OnFilterQuality(if (isSel) null else option.qualityValue)) },
+                                    label = {
+                                        Text(
+                                            "${option.label} (${option.count})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = DesktopUi.AccentSoft,
+                                        selectedLabelColor = DesktopUi.Accent,
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                            }
+                        }
+
+                        if (availableFormats.size > 1) {
+                            Box(
+                                modifier = Modifier
+                                    .height(16.dp)
+                                    .width(1.dp)
+                                    .background(DesktopUi.Divider.copy(alpha = 0.5f)),
+                            )
+
+                            availableFormats.forEach { formatOpt ->
+                                val isSel = selectedFormat == formatOpt.format
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { viewModel.onEvent(LinksUiEvent.OnFilterFormat(formatOpt.format)) },
+                                    label = {
+                                        Text(
+                                            "${formatOpt.format.label} (${formatOpt.count})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                        selectedLabelColor = MaterialTheme.colorScheme.primary,
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Stream Link List
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (!isScraping && filteredLinks.isEmpty()) {
                         item {
@@ -394,31 +686,13 @@ fun LinksSidePanel(
                     }
 
                     itemsIndexed(filteredLinks, key = { index, it -> "${it.name}-${it.url}-$index" }) { _, link ->
-                        val isTorrent = link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.TORRENT ||
-                            link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.MAGNET ||
-                            link.url.startsWith("magnet:")
-
                         StreamLinkCard(
                             link = link,
                             isP2pEnabled = isP2pEnabled,
+                            isPlaying = (currentPlayingUrl == link.url),
                             isBusy = isLaunchingPlayer && currentPlayingUrl != link.url,
                             onPlay = {
-                                if (isTorrent && !isP2pEnabled) {
-                                    p2pDisclaimerTargetAction = {
-                                        viewModel.onEvent(
-                                            LinksUiEvent.OnPlayLink(
-                                                link = link,
-                                                displayTitle = displayTitle,
-                                                history = history,
-                                                loadResponse = loadResponse,
-                                                currentPlayingUrl = currentPlayingUrl,
-                                                enrichedActors = enrichedActors,
-                                                enrichedLogoUrl = enrichedLogoUrl,
-                                                enrichedBackdropUrl = enrichedBackdropUrl,
-                                            ),
-                                        )
-                                    }
-                                } else {
+                                val playAction: () -> Unit = {
                                     viewModel.onEvent(
                                         LinksUiEvent.OnPlayLink(
                                             link = link,
@@ -432,14 +706,32 @@ fun LinksSidePanel(
                                         ),
                                     )
                                 }
+                                when (DesktopTorrentEngine.checkTorrentPlayability(link)) {
+                                    TorrentPlayability.NEEDS_P2P_ENABLED -> {
+                                        p2pDisclaimerTargetAction = playAction
+                                    }
+                                    TorrentPlayability.NEEDS_TORRSERVER_INSTALL -> {
+                                        torrServerInstallTargetAction = playAction
+                                    }
+                                    TorrentPlayability.READY -> {
+                                        playAction()
+                                    }
+                                }
                             },
                             onDownload = {
-                                if (isTorrent && !isP2pEnabled) {
-                                    p2pDisclaimerTargetAction = {
-                                        viewModel.onEvent(LinksUiEvent.OnSetLinkToDownload(link))
-                                    }
-                                } else {
+                                val downloadAction: () -> Unit = {
                                     viewModel.onEvent(LinksUiEvent.OnSetLinkToDownload(link))
+                                }
+                                when (DesktopTorrentEngine.checkTorrentPlayability(link)) {
+                                    TorrentPlayability.NEEDS_P2P_ENABLED -> {
+                                        p2pDisclaimerTargetAction = downloadAction
+                                    }
+                                    TorrentPlayability.NEEDS_TORRSERVER_INSTALL -> {
+                                        torrServerInstallTargetAction = downloadAction
+                                    }
+                                    TorrentPlayability.READY -> {
+                                        downloadAction()
+                                    }
                                 }
                             },
                             onCopy = {
@@ -490,6 +782,22 @@ fun LinksSidePanel(
                     p2pDisclaimerTargetAction = null
                     viewModel.onEvent(LinksUiEvent.OnP2pEnabledChanged(true))
                     com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showSuccess("P2P Torrent Streaming enabled")
+                    if (!DesktopTorrentEngine.binary.isInstalled()) {
+                        torrServerInstallTargetAction = action
+                    } else {
+                        action?.invoke()
+                    }
+                },
+            )
+
+            // TorrServer Installation Required Dialog
+            TorrServerInstallRequiredDialog(
+                show = torrServerInstallTargetAction != null,
+                onDismiss = { torrServerInstallTargetAction = null },
+                onInstalled = {
+                    val action = torrServerInstallTargetAction
+                    torrServerInstallTargetAction = null
+                    com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showSuccess("TorrServer installed successfully")
                     action?.invoke()
                 },
             )
@@ -512,81 +820,11 @@ fun LinksSidePanel(
     }
 }
 
-@Composable
-private fun StreamStatusCard(
-    statusText: String,
-    isLoading: Boolean,
-    isScraping: Boolean,
-    onStop: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = DesktopUi.SurfaceCard,
-        border = androidx.compose.foundation.BorderStroke(1.dp, DesktopUi.Divider.copy(alpha = 0.5f)),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = DesktopUi.Accent,
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-            }
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = DesktopUi.TextPrimary,
-                modifier = Modifier.weight(1f),
-            )
-            if (isScraping) {
-                TextButton(onClick = onStop) {
-                    Text("Stop", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
+internal data class SourceOption(
+    val name: String,
+    val count: Int,
+    val isAddon: Boolean = false,
+)
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PlayerSelector(selectedPlayer: String, onSelect: (String) -> Unit) {
-    val players = listOf("mpv" to "MPV (Internal)", "vlc" to "VLC (External)")
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            Icons.Default.SmartDisplay,
-            contentDescription = null,
-            tint = DesktopUi.TextMuted,
-            modifier = Modifier.size(16.dp),
-        )
-        Text("Player:", style = MaterialTheme.typography.labelMedium, color = DesktopUi.TextMuted)
-        players.forEach { (id, label) ->
-            FilterChip(
-                selected = selectedPlayer == id,
-                onClick = { onSelect(id) },
-                label = { Text(label) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = DesktopUi.AccentSoft,
-                    selectedLabelColor = DesktopUi.Accent,
-                ),
-                shape = RoundedCornerShape(8.dp),
-            )
-        }
-    }
-}
 
 

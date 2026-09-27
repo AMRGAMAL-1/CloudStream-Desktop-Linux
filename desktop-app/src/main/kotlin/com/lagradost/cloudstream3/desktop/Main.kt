@@ -145,7 +145,7 @@ fun main(args: Array<String> = emptyArray()) {
                 var isAppReady by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
-                    launch(Dispatchers.IO) {
+                    val startupJob = launch(Dispatchers.IO) {
                         val proxyJob = async { initProxy() }
 
                         // Strict dependency: Security (DataStore, Conscrypt) must init first
@@ -174,14 +174,35 @@ fun main(args: Array<String> = emptyArray()) {
                             Class.forName("com.lagradost.cloudstream3.desktop.ui.screens.settings.SettingsSession")
                             Class.forName("com.lagradost.cloudstream3.desktop.ui.screens.settings.AppearanceConfig")
                         } catch (_: Throwable) {}
-                    }.join()
+                    }
+
+                    // Splash screen will never block for more than 2.0 seconds regardless of network status
+                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                        startupJob.join()
+                    }
 
                     isAppReady = true
 
-                    // Run updates in the background so they don't block the UI if the network is down or slow
+                    // If offline at boot, alert user that offline mode is active
+                    val initiallyOnline = com.lagradost.cloudstream3.desktop.network.NetworkMonitor.isOnline.value
+                    if (!initiallyOnline) {
+                        com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showInfo("Offline Mode: Local library and downloaded content available.")
+                    }
+
+                    // Reactive connection listener: instantly sync as soon as internet is connected
                     launch(Dispatchers.IO) {
-                        launchAutoUpdater()
-                        com.lagradost.cloudstream3.desktop.updates.UnifiedUpdateManager.checkAllUpdates()
+                        var wasOffline = !initiallyOnline
+                        com.lagradost.cloudstream3.desktop.network.NetworkMonitor.isOnline.collect { online ->
+                            if (online) {
+                                if (wasOffline) {
+                                    com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showSuccess("Internet connection restored. Synchronizing online content...")
+                                    wasOffline = false
+                                }
+                                launchAutoUpdater()
+                                com.lagradost.cloudstream3.desktop.updates.UnifiedUpdateManager.checkAllUpdates()
+                                com.lagradost.cloudstream3.desktop.AppUpdater.checkForUpdates()
+                            }
+                        }
                     }
                 }
 

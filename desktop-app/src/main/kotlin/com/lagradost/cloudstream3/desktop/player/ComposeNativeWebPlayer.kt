@@ -137,6 +137,86 @@ fun ComposeNativeWebPlayer(
 
     var hasAutoSelectedQuality by remember(link) { mutableStateOf(false) }
 
+    val resolvedImdbId = remember(parentId, currentEpisodeId) {
+        parentId?.takeIf { it.startsWith("tt", ignoreCase = true) }
+            ?: currentEpisodeId?.takeIf { it.startsWith("tt", ignoreCase = true) }?.substringBefore(":")
+    }
+
+    var autoFetchedSubtitleTracks by remember { mutableStateOf<List<LazyTrackPayload>>(emptyList()) }
+    var lastAutoFetchKey by remember { mutableStateOf<String?>(null) }
+
+    val currentSubFetchKey = remember(title, parentId, currentSeasonNumber, currentEpisodeNumber, episodes, currentEpisodeId) {
+        val ep = episodes.find { it.data == currentEpisodeId }
+        val s = currentSeasonNumber ?: ep?.season
+        val e = currentEpisodeNumber ?: ep?.episode
+        "${parentId ?: "none"}|${title?.trim() ?: "none"}|$s|$e"
+    }
+
+    LaunchedEffect(currentSubFetchKey, isUiReady) {
+        if (!isUiReady || currentSubFetchKey == lastAutoFetchKey) return@LaunchedEffect
+        lastAutoFetchKey = currentSubFetchKey
+
+        val cleanTitle = title?.trim()?.ifBlank { null } ?: return@LaunchedEffect
+        val ep = episodes.find { it.data == currentEpisodeId }
+        val s = currentSeasonNumber ?: ep?.season
+        val e = currentEpisodeNumber ?: ep?.episode
+
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-fetching subtitles for '$cleanTitle' (s=$s, e=$e, imdb=$resolvedImdbId)")
+                val prefLang = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_PREFERRED_SUB_LANG) ?: "en"
+
+                val results = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                    SubtitleExtractionService.searchSubtitles(
+                        query = cleanTitle,
+                        lang = null,
+                        season = s,
+                        episode = e,
+                        imdbId = resolvedImdbId,
+                    )
+                } ?: emptyList()
+
+                if (results.isNotEmpty()) {
+                    val payloads = results.mapNotNull { map ->
+                        val dataUrl = map["data"] as? String ?: return@mapNotNull null
+                        val rawName = map["name"] as? String ?: "Subtitle"
+                        val lang = map["lang"] as? String ?: "en"
+                        val source = map["source"] as? String ?: "Addon"
+                        val cleanLabel = if (rawName.startsWith("[$source]")) rawName else "[$source] $rawName"
+                        LazyTrackPayload(
+                            url = dataUrl,
+                            name = cleanLabel,
+                            language = lang,
+                        )
+                    }
+                    autoFetchedSubtitleTracks = payloads
+                    com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-fetched ${payloads.size} external subtitle tracks")
+
+                    // Smart auto-selection: only if container does not already have an active subtitle track
+                    val hasActiveSub = subtitleTracks.any { it.isSelected }
+                    val autoSubEnabled = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>("cs_desktop_auto_select_subtitles") ?: true
+                    if (!hasActiveSub && autoSubEnabled) {
+                        val match = payloads.firstOrNull {
+                            com.lagradost.cloudstream3.desktop.subtitles.LanguageNormalizer.isMatch(prefLang, it.language)
+                        }
+                        if (match != null) {
+                            com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-selecting preferred subtitle track: ${match.name}")
+                            playerState?.loadLazySubtitleTrack(
+                                com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(
+                                    url = match.url,
+                                    name = match.name,
+                                    language = match.language ?: prefLang,
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                com.lagradost.common.logging.AppLogger.w("Player:Web", "Failed auto-fetching subtitles: ${t.message}")
+            }
+        }
+    }
+
     LaunchedEffect(proxyVideoTracks, link) {
         if (!hasAutoSelectedQuality && proxyVideoTracks.isNotEmpty() && link?.quality != null && link.quality != com.lagradost.cloudstream3.utils.Qualities.Unknown.value) {
             val targetRes = link.quality
@@ -288,9 +368,9 @@ fun ComposeNativeWebPlayer(
                 lazyAudioTracks = proxyAudioTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
                 },
-                lazySubTracks = proxySubtitleTracks.map {
+                lazySubTracks = (proxySubtitleTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
-                },
+                } + autoFetchedSubtitleTracks).distinctBy { it.url },
                 lazyVideoTracks = proxyVideoTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
                 },
@@ -333,6 +413,7 @@ fun ComposeNativeWebPlayer(
                 audioEqPreset = audioEqPreset,
                 audioVolumeMax = audioVolumeMax,
                 audioDelay = audioDelay,
+                imdbId = resolvedImdbId,
             )
 
             val wrapper = MetadataUpdatePayloadWrapper(
@@ -344,7 +425,7 @@ fun ComposeNativeWebPlayer(
         }
     }
 
-    LaunchedEffect(isUiReady, isLoading, links, currentLinkIndex, episodes, currentEpisodeId, currentEpisodeNumber, currentSeasonNumber, audioTracks, subtitleTracks, videoTracks, chapters, currentChapterIndex, proxyAudioTracks, proxySubtitleTracks, proxyVideoTracks, loadingStatusText, isProbing, isScraping, failedLinks, backdropUrl, logoUrl, title, activeShader, activeLazyVideoTrackUrl, activeLazyAudioTrackUrl, activeSkipInterval, skipIntervals, resolution, plot, year, tags, contentRating, rating, activeSubtitleOverrideEnabled, isLive, isAudioOnlyStream, isAudioMode, actors, isAnime, isExhausted, exhaustionReason, exhaustionDiagnostics, watchHistoryList) {
+    LaunchedEffect(isUiReady, isLoading, links, currentLinkIndex, episodes, currentEpisodeId, currentEpisodeNumber, currentSeasonNumber, audioTracks, subtitleTracks, videoTracks, chapters, currentChapterIndex, proxyAudioTracks, proxySubtitleTracks, proxyVideoTracks, autoFetchedSubtitleTracks, loadingStatusText, isProbing, isScraping, failedLinks, backdropUrl, logoUrl, title, activeShader, activeLazyVideoTrackUrl, activeLazyAudioTrackUrl, activeSkipInterval, skipIntervals, resolution, plot, year, tags, contentRating, rating, activeSubtitleOverrideEnabled, isLive, isAudioOnlyStream, isAudioMode, actors, isAnime, isExhausted, exhaustionReason, exhaustionDiagnostics, watchHistoryList) {
         if (isUiReady) {
             if (isScraping && !isProbing && !isExhausted && !isLoading) {
                 kotlinx.coroutines.delay(250L)
@@ -493,7 +574,8 @@ fun ComposeNativeWebPlayer(
             val childHwnd = NativePlayerBridge.initWebView(canvasWid, w, h)
             MpvLibrary.INSTANCE.mpv_set_option_string(handle, "wid", childHwnd.toString())
             MpvLibrary.INSTANCE.mpv_set_option_string(handle, "vo", "gpu")
-            MpvLibrary.INSTANCE.mpv_set_option_string(handle, "gpu-api", "d3d11")
+            val gpuApi = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_GPU_API) ?: "d3d11"
+            MpvLibrary.INSTANCE.mpv_set_option_string(handle, "gpu-api", gpuApi)
 
             val delaySec = com.lagradost.common.storage.DesktopDataStore.getKey<Float>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_DELAY) ?: 0f
             MpvLibrary.INSTANCE.mpv_set_option_string(handle, "audio-delay", delaySec.toString())
@@ -586,8 +668,9 @@ fun ComposeNativeWebPlayer(
                         is PlayerInboundEvent.SearchSubtitles -> {
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 try {
-                                    com.lagradost.common.logging.AppLogger.i("Player:Web", "Searching online subtitles: query='${event.query}', lang='${event.lang}', season=${event.season}, episode=${event.episode}")
-                                    val allResults = SubtitleExtractionService.searchSubtitles(event.query, event.lang, event.season, event.episode)
+                                    val effectiveImdbId = event.imdbId?.takeIf { it.isNotBlank() } ?: resolvedImdbId
+                                    com.lagradost.common.logging.AppLogger.i("Player:Web", "Searching online subtitles: query='${event.query}', lang='${event.lang}', season=${event.season}, episode=${event.episode}, imdbId=$effectiveImdbId")
+                                    val allResults = SubtitleExtractionService.searchSubtitles(event.query, event.lang, event.season, event.episode, effectiveImdbId)
                                     com.lagradost.common.logging.AppLogger.i("Player:Web", "Subtitle search complete: returned ${allResults.size} tracks")
 
                                     val json = playerObjectMapper.writeValueAsString(
@@ -903,12 +986,17 @@ fun ComposeNativeWebPlayer(
                             }
                         }
                         is PlayerInboundEvent.LazySubtitleTrack -> {
-                            val track = com.lagradost.player.impl.proxy.LocalStreamProxyState.lazySubtitleTracks.value.find { it.url == event.url }
-                            if (track != null) {
+                            val proxyTrack = com.lagradost.player.impl.proxy.LocalStreamProxyState.lazySubtitleTracks.value.find { it.url == event.url }
+                            val lazyTrack = if (proxyTrack != null) {
+                                com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(proxyTrack.url, proxyTrack.name, proxyTrack.language)
+                            } else {
+                                autoFetchedSubtitleTracks.find { it.url == event.url }?.let {
+                                    com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(it.url, it.name, it.language ?: "en")
+                                }
+                            }
+                            if (lazyTrack != null) {
                                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                    playerState?.loadLazySubtitleTrack(
-                                        com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(track.url, track.name, track.language),
-                                    )
+                                    playerState?.loadLazySubtitleTrack(lazyTrack)
                                 }
                             }
                         }

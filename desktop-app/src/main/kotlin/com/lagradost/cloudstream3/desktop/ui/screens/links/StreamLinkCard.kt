@@ -2,6 +2,10 @@ package com.lagradost.cloudstream3.desktop.ui.screens.links
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -10,14 +14,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,10 +56,128 @@ internal fun extractCleanSize(rawName: String): String? {
     return sizeMatch?.groupValues?.get(1)?.replace("GiB", "GB", ignoreCase = true)?.replace("MiB", "MB", ignoreCase = true)
 }
 
+internal fun extractTechTags(rawName: String): List<String> {
+    val tags = mutableListOf<String>()
+    val upper = rawName.uppercase()
+
+    if (upper.contains("DOLBY VISION") || upper.contains("DV ") || upper.contains(".DV.") || upper.contains("-DV-") || upper.contains("[DV]")) {
+        tags.add("Dolby Vision")
+    } else if (upper.contains("HDR10+")) {
+        tags.add("HDR10+")
+    } else if (upper.contains("HDR10") || upper.contains(" HDR ") || upper.contains(".HDR.") || upper.contains("[HDR]")) {
+        tags.add("HDR")
+    }
+    if (upper.contains("10BIT") || upper.contains("10-BIT") || upper.contains("10 BIT")) {
+        tags.add("10-bit")
+    }
+
+    if (upper.contains("AV1")) {
+        tags.add("AV1")
+    } else if (upper.contains("HEVC") || upper.contains("X265") || upper.contains("H.265") || upper.contains("H265")) {
+        tags.add("HEVC")
+    } else if (upper.contains("X264") || upper.contains("H.264") || upper.contains("H264") || upper.contains("AVC")) {
+        tags.add("AVC")
+    }
+
+    if (upper.contains("ATMOS")) {
+        tags.add("Atmos")
+    }
+    if (upper.contains("TRUEHD")) {
+        tags.add("TrueHD")
+    } else if (upper.contains("DTS-HD") || upper.contains("DTSHD")) {
+        tags.add("DTS-HD")
+    } else if (upper.contains("DDP5.1") || upper.contains("DDP 5.1") || upper.contains("EAC3 5.1") || upper.contains("E-AC-3 5.1")) {
+        tags.add("DDP 5.1")
+    } else if (upper.contains("5.1") || upper.contains("6CH")) {
+        tags.add("5.1")
+    } else if (upper.contains("7.1") || upper.contains("8CH")) {
+        tags.add("7.1")
+    }
+
+    return tags.distinct()
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun StreamActionIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    tooltipText: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    isPrimary: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val isHovered by interaction.collectIsHoveredAsState()
+
+    val containerBg = when {
+        isPrimary && isHovered -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+        isPrimary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+        isHovered -> Color.White.copy(alpha = 0.15f)
+        else -> Color.White.copy(alpha = 0.05f)
+    }
+
+    val borderColor = when {
+        isPrimary && isHovered -> MaterialTheme.colorScheme.primary
+        isPrimary -> MaterialTheme.colorScheme.primary.copy(alpha = 0.50f)
+        isHovered -> Color.White.copy(alpha = 0.25f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+
+    val iconTint = when {
+        isPrimary && isHovered -> MaterialTheme.colorScheme.onPrimary
+        isPrimary -> MaterialTheme.colorScheme.primary
+        isHovered -> Color.White
+        else -> DesktopUi.TextPrimary.copy(alpha = 0.70f)
+    }
+
+    TooltipArea(
+        tooltip = {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF1E1E28),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                shadowElevation = 6.dp,
+            ) {
+                Text(
+                    text = tooltipText,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        },
+        delayMillis = 250,
+    ) {
+        Surface(
+            modifier = modifier
+                .size(36.dp)
+                .hoverable(interaction)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(enabled = enabled, onClick = onClick),
+            shape = RoundedCornerShape(8.dp),
+            color = containerBg,
+            border = BorderStroke(1.dp, borderColor),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = iconTint,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun StreamLinkCard(
     link: ExtractorLink,
     isP2pEnabled: Boolean = false,
+    isPlaying: Boolean = false,
     isBusy: Boolean,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
@@ -59,7 +186,7 @@ fun StreamLinkCard(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val scale by animateFloatAsState(
-        targetValue = if (hovered) 1.01f else 1f,
+        targetValue = if (hovered) 1.005f else 1f,
         animationSpec = tween(150),
         label = "cardScale",
     )
@@ -84,6 +211,13 @@ fun StreamLinkCard(
         else -> DesktopUi.TextMuted
     }
 
+    val qualityBadgeText = when {
+        is4k -> "🔥 4K UHD"
+        is1080 -> "🚀 FHD"
+        is720 -> "HD 720p"
+        else -> formattedQuality
+    }
+
     val formatTag = when {
         link.isM3u8 || link.name.contains("HLS", ignoreCase = true) || link.url.contains(".m3u8") -> "HLS"
         link.isDash || link.name.contains("DASH", ignoreCase = true) || link.url.contains(".mpd") -> "DASH"
@@ -98,30 +232,60 @@ fun StreamLinkCard(
         link.url.contains(".m3u8", ignoreCase = true) || link.url.contains(".mpd", ignoreCase = true)
 
     val cleanSize = remember(link.name) { extractCleanSize(link.name) }
+    val addonSource = remember(link.source) { link.source.trim().ifBlank { null } }
     val hostSource = remember(link.name, link.source) {
         if (link.source.isNotBlank() && link.source != link.name) link.source else extractCleanServer(link.name, "")
+    }
+    val techTags = remember(link.name) { extractTechTags(link.name) }
+
+    val rawLines = remember(link.name) {
+        link.name.lines().map { it.trim() }.filter { it.isNotBlank() }
+    }
+    val firstLine = rawLines.firstOrNull() ?: ""
+    val detailLines = if (rawLines.size > 1) rawLines.drop(1) else emptyList()
+
+    val cleanTitle = remember(firstLine, addonSource, cleanSize) {
+        var t = firstLine.removePrefix("⚡").trim()
+        if (addonSource != null) {
+            t = t.replace("[$addonSource]", "").trim()
+        }
+        if (cleanSize != null) {
+            t = t.replace("[$cleanSize]", "").trim()
+        }
+        t.ifBlank { firstLine }
+    }
+
+    val cardShape = RoundedCornerShape(12.dp)
+    val cardBackground = when {
+        isPlaying -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        hovered -> DesktopUi.SurfaceElevated.copy(alpha = 0.85f)
+        else -> DesktopUi.SurfaceCard.copy(alpha = 0.55f)
+    }
+    val cardBorder = when {
+        isPlaying -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+        hovered -> BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+        else -> BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
     }
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .hoverable(interaction),
-        shape = RoundedCornerShape(10.dp),
-        color = if (hovered) DesktopUi.SurfaceElevated else DesktopUi.SurfaceCard,
-        tonalElevation = if (hovered) 6.dp else 2.dp,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (hovered) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else DesktopUi.Divider.copy(alpha = 0.4f),
-        ),
+            .hoverable(interaction)
+            .clip(cardShape)
+            .clickable(enabled = !isBusy, onClick = onPlay),
+        shape = cardShape,
+        color = cardBackground,
+        tonalElevation = if (hovered) 4.dp else 1.dp,
+        border = cardBorder,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Row 1: Badges on Left, File Size on Right
+            // Row 1: Badges Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -129,22 +293,52 @@ fun StreamLinkCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                     modifier = Modifier.weight(1f, fill = false),
                 ) {
                     // Quality Badge
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = qualityContainerColor,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, qualityTextColor.copy(alpha = 0.3f)),
+                        border = BorderStroke(1.dp, qualityTextColor.copy(alpha = 0.35f)),
                     ) {
                         Text(
-                            text = formattedQuality,
+                            text = qualityBadgeText,
                             color = qualityTextColor,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
+                    }
+
+                    // Addon / Source Badge
+                    if (addonSource != null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f)),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Extension,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = addonSource,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
 
                     // Format Badge
@@ -153,19 +347,19 @@ fun StreamLinkCard(
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = if (isP2pOff) Color(0xFFF59E0B).copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isP2pOff) Color(0xFFF59E0B).copy(alpha = 0.4f) else DesktopUi.Divider.copy(alpha = 0.3f)),
+                        border = BorderStroke(1.dp, if (isP2pOff) Color(0xFFF59E0B).copy(alpha = 0.4f) else DesktopUi.Divider.copy(alpha = 0.3f)),
                     ) {
                         Text(
                             text = if (isP2pOff) "TORRENT • P2P OFF" else formatTag,
                             color = if (isP2pOff) Color(0xFFF59E0B) else MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (isP2pOff) FontWeight.Bold else FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
                         )
                     }
 
-                    // Host / Source Tag
-                    if (hostSource.isNotBlank()) {
+                    // Host / Server Tag (if different from addon source)
+                    if (hostSource.isNotBlank() && !hostSource.equals(addonSource, ignoreCase = true)) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -177,133 +371,154 @@ fun StreamLinkCard(
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+
+                // If currently playing, show animated/styled PLAYING indicator
+                if (isPlaying) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "PLAYING",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Row 2: Title / Release Name
+            Text(
+                text = cleanTitle,
+                fontWeight = if (isPlaying) FontWeight.SemiBold else FontWeight.Medium,
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
+                color = if (isPlaying) MaterialTheme.colorScheme.primary else DesktopUi.TextPrimary,
+                softWrap = true,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 19.sp,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            // Row 3: Detail Lines (e.g. from Stremio) OR Tech Tags
+            if (detailLines.isNotEmpty()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    detailLines.take(5).forEach { dLine ->
+                        Text(
+                            text = dLine,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                            color = DesktopUi.TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else if (techTags.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    techTags.take(4).forEach { tag ->
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            border = BorderStroke(1.dp, DesktopUi.Divider.copy(alpha = 0.25f)),
+                        ) {
+                            Text(
+                                text = tag,
+                                color = DesktopUi.TextMuted,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
                     }
                 }
+            }
 
-                // Extracted File Size Badge
+            // Row 4: Size Badge on Left, Action Buttons on Right
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Size Badge
                 if (cleanSize != null) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+                        color = Color(0xFF1E1E1E),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
                     ) {
                         Text(
-                            text = cleanSize,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            text = "SIZE $cleanSize",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp,
+                            ),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
                         )
-                    }
-                }
-            }
-
-            // Row 2: Full Raw Release Title (100% visible and unclipped)
-            Text(
-                text = link.name,
-                fontWeight = FontWeight.Medium,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
-                color = DesktopUi.TextPrimary,
-                softWrap = true,
-                lineHeight = 19.sp,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // Row 3: Action Buttons (Copy, Download, Play)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-            ) {
-                IconButton(
-                    onClick = onCopy,
-                    enabled = !isBusy,
-                    modifier = Modifier.size(34.dp),
-                ) {
-                    Icon(
-                        Icons.Default.ContentCopy,
-                        contentDescription = "Copy Stream URL",
-                        tint = DesktopUi.TextMuted,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                if (isAdaptive) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DesktopUi.Divider.copy(alpha = 0.5f)),
-                        modifier = Modifier.defaultMinSize(minHeight = 34.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.SmartDisplay,
-                                contentDescription = null,
-                                tint = DesktopUi.TextMuted,
-                                modifier = Modifier.size(14.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Stream Only",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = DesktopUi.TextMuted,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
                     }
                 } else {
-                    OutlinedButton(
-                        onClick = onDownload,
-                        enabled = !isBusy,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.defaultMinSize(minHeight = 34.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Download,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            "Download",
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(1.dp))
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Button(
-                    onClick = onPlay,
-                    enabled = !isBusy,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DesktopUi.Accent,
-                        contentColor = Color.White,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                    modifier = Modifier.defaultMinSize(minHeight = 34.dp),
+                // Action Buttons
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                    // Copy Stream URL
+                    StreamActionIconButton(
+                        icon = Icons.Default.ContentCopy,
+                        contentDescription = "Copy Stream URL",
+                        tooltipText = "Copy Stream URL",
+                        enabled = !isBusy,
+                        onClick = onCopy,
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        "Play",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelMedium,
+
+                    // Download Stream (Direct links only)
+                    if (!isAdaptive) {
+                        StreamActionIconButton(
+                            icon = Icons.Default.Download,
+                            contentDescription = "Download Stream",
+                            tooltipText = "Download Stream",
+                            enabled = !isBusy,
+                            onClick = onDownload,
+                        )
+                    }
+
+                    // Play Button
+                    StreamActionIconButton(
+                        icon = Icons.Default.PlayArrow,
+                        contentDescription = "Play Stream",
+                        tooltipText = "Play Stream",
+                        enabled = !isBusy,
+                        onClick = onPlay,
+                        isPrimary = true,
                     )
                 }
             }
