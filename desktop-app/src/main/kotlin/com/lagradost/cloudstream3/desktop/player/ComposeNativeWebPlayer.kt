@@ -179,7 +179,8 @@ fun ComposeNativeWebPlayer(
                 if (results.isNotEmpty()) {
                     val payloads = results.mapNotNull { map ->
                         val dataUrl = map["data"] as? String ?: return@mapNotNull null
-                        val rawName = map["name"] as? String ?: "Subtitle"
+                        val rawNameRaw = map["name"] as? String ?: "Subtitle"
+                        val rawName = rawNameRaw.replace(Regex("""[\r\n]+"""), " | ").trim().let { if (it.length > 150) it.take(147) + "..." else it }
                         val lang = map["lang"] as? String ?: "en"
                         val source = map["source"] as? String ?: "Addon"
                         val cleanLabel = if (rawName.startsWith("[$source]")) rawName else "[$source] $rawName"
@@ -285,6 +286,12 @@ fun ComposeNativeWebPlayer(
             val activeSubtitleBlur = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_BLUR)
             val activeSubtitleBold = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_BOLD)
             val activeSubtitleItalic = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_ITALIC)
+            val activeSubtitleColor = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_COLOR) ?: "#FFFFFF"
+            val activeSubtitleSize = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_SIZE) ?: "45"
+            val activeSubtitlePos = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_POS) ?: "100"
+            val activeSubtitleRemoveCaptions = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_REMOVE_CAPTIONS) ?: false
+            val activeSubtitleRemoveBloat = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_REMOVE_BLOAT) ?: true
+            val activeSubtitleUppercase = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_UPPERCASE) ?: false
             val audioNormalization = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_NORMALIZATION) ?: false
             val audioNormStrength = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_NORM_STRENGTH) ?: "Medium"
             val audioSpatial = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_SPATIAL) ?: false
@@ -342,6 +349,11 @@ fun ComposeNativeWebPlayer(
                     val normalizedPoster = resolvedEpPoster?.let { url -> if (url.startsWith("//")) "https:$url" else url }
                     val safePoster = com.lagradost.cloudstream3.desktop.utils.ImageUtils.getCachedDiskFileUri(normalizedPoster) ?: normalizedPoster
 
+                    val lockUnreleased = com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.lockUnreleasedEpisodes.value
+                    val releaseStatus = com.lagradost.cloudstream3.desktop.ui.screens.details.parseEpisodeReleaseStatus(it)
+                    val isLocked = releaseStatus.isUnreleased && lockUnreleased
+                    val releaseText = releaseStatus.formattedDate ?: releaseStatus.statusBadgeText
+
                     EpisodePayload(
                         id = it.data,
                         title = it.name ?: "Episode ${it.episode}",
@@ -354,13 +366,16 @@ fun ComposeNativeWebPlayer(
                         score = it.score?.toFloat(10)?.toDouble(),
                         watchedPercentage = progress?.let { p -> p * 100.0 },
                         isSeen = isWatched,
+                        isLocked = isLocked,
+                        releaseDateText = releaseText,
                     )
                 },
                 audioTracks = audioTracks.map {
                     SubtitleTrackPayload(it.id, it.name, it.isSelected)
                 },
                 subTracks = subtitleTracks.map {
-                    SubtitleTrackPayload(it.id, it.name, it.isSelected)
+                    val safeName = it.name.replace(Regex("""[\r\n]+"""), " | ").trim().let { name -> if (name.length > 150) name.take(147) + "..." else name }
+                    SubtitleTrackPayload(it.id, safeName, it.isSelected)
                 },
                 videoTracks = videoTracks.map {
                     SubtitleTrackPayload(it.id, it.name, it.isSelected)
@@ -369,7 +384,8 @@ fun ComposeNativeWebPlayer(
                     LazyTrackPayload(it.url, it.name, it.language)
                 },
                 lazySubTracks = (proxySubtitleTracks.map {
-                    LazyTrackPayload(it.url, it.name, it.language)
+                    val safeName = it.name.replace(Regex("""[\r\n]+"""), " | ").trim().let { name -> if (name.length > 150) name.take(147) + "..." else name }
+                    LazyTrackPayload(it.url, safeName, it.language)
                 } + autoFetchedSubtitleTracks).distinctBy { it.url },
                 lazyVideoTracks = proxyVideoTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
@@ -392,6 +408,12 @@ fun ComposeNativeWebPlayer(
                 activeLazyAudioTrackUrl = activeLazyAudioTrackUrl,
                 resolution = resolution,
                 activeSubtitleOverrideEnabled = activeSubtitleOverrideEnabled,
+                activeSubtitleColor = activeSubtitleColor,
+                activeSubtitleSize = activeSubtitleSize,
+                activeSubtitlePos = activeSubtitlePos,
+                activeSubtitleRemoveCaptions = activeSubtitleRemoveCaptions,
+                activeSubtitleRemoveBloat = activeSubtitleRemoveBloat,
+                activeSubtitleUppercase = activeSubtitleUppercase,
                 isLive = isLive,
                 isAudioOnlyStream = isAudioOnlyStream,
                 isAudioMode = isAudioMode,
@@ -738,6 +760,25 @@ fun ComposeNativeWebPlayer(
                                 }
                             }
                         }
+                        is PlayerInboundEvent.SetSubsourceApiKey -> {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val key = event.apiKey.trim()
+                                    com.lagradost.common.storage.DesktopDataStore.setKey(
+                                        com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUBSOURCE_API_KEY,
+                                        key,
+                                    )
+                                    com.lagradost.common.logging.AppLogger.i("Player:Web", "Updated SubSource API key (len=${key.length})")
+                                    val msg = if (key.isNotBlank()) "SubSource API key saved" else "SubSource API key cleared"
+                                    val toastJson = playerObjectMapper.writeValueAsString(
+                                        mapOf("type" to "show_toast", "message" to msg),
+                                    )
+                                    NativePlayerBridge.postMessage(toastJson)
+                                } catch (e: Exception) {
+                                    com.lagradost.common.logging.AppLogger.e("Player:Web", "Failed to save SubSource API key: ${e.message}", e)
+                                }
+                            }
+                        }
                         is PlayerInboundEvent.OpenLocalSubtitlePicker -> {
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 try {
@@ -1026,6 +1067,21 @@ fun ComposeNativeWebPlayer(
                                 playerState?.setSubtitleOverrideEnabled(event.enabled)
                             }
                         }
+                        is PlayerInboundEvent.SetSubFilterCaptions -> {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                playerState?.setSubFilterSdh(event.enabled)
+                            }
+                        }
+                        is PlayerInboundEvent.SetSubFilterBloat -> {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                playerState?.setSubFilterBloat(event.enabled)
+                            }
+                        }
+                        is PlayerInboundEvent.SetSubUppercase -> {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                playerState?.setSubUppercase(event.enabled)
+                            }
+                        }
                         is PlayerInboundEvent.ResetSubtitleSettings -> {
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_FONT)
@@ -1040,9 +1096,17 @@ fun ComposeNativeWebPlayer(
                                 com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_BOLD)
                                 com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_ITALIC)
                                 com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_ENABLE_SUB_OVERRIDE)
+                                com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_REMOVE_CAPTIONS)
+                                com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_REMOVE_BLOAT)
+                                com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_UPPERCASE)
+                                com.lagradost.common.storage.DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_POS)
 
                                 playerState?.setSubtitleFont(null)
                                 playerState?.setSubtitleOverrideEnabled(true)
+                                playerState?.setSubFilterSdh(false)
+                                playerState?.setSubFilterBloat(true)
+                                playerState?.setSubUppercase(false)
+                                playerState?.setSubtitlePosition(100)
                                 playerState?.setMpvProperty("sub-color", "#FFFFFF")
                                 playerState?.setMpvProperty("sub-font-size", "45")
                                 val (defMpvBg, defBorderStyle) = com.lagradost.cloudstream3.desktop.player.PlayerConfig.toMpvBackgroundColor(null)
@@ -1189,6 +1253,7 @@ fun ComposeNativeWebPlayer(
                                 when (event.property) {
                                     "sub-color" -> com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_COLOR, event.value)
                                     "sub-font-size" -> com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_SIZE, event.value)
+                                    "sub-pos" -> com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_POS, event.value)
                                 }
                             }
                         }

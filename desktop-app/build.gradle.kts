@@ -110,6 +110,11 @@ compose.desktop {
         mainClass = "com.lagradost.cloudstream3.desktop.MainKt"
         jvmArgs +=
             listOf(
+                "-Xms256m",
+                "-Xmx2048m",
+                "-XX:+UseG1GC",
+                "-XX:MaxGCPauseMillis=50",
+                "-XX:CICompilerCount=2",
                 "-Djava.security.manager=allow",
                 "-Djava.net.preferIPv6Addresses=true",
                 "-Djava.library.path=\$APPDIR/resources/jni",
@@ -169,6 +174,11 @@ compose.desktop {
 tasks.matching { it.name == "run" }.configureEach {
     val runTask = this as JavaExec
     runTask.jvmArgs(
+        "-Xms256m",
+        "-Xmx2048m",
+        "-XX:+UseG1GC",
+        "-XX:MaxGCPauseMillis=50",
+        "-XX:CICompilerCount=2",
         "-Djna.library.path=${project.file("appResources/windows/mpv").absolutePath}",
         "-Djava.library.path=${project.file("appResources/windows/jni").absolutePath}",
         "-Dcloudstream.version=${project.findProperty("APP_VERSION")}",

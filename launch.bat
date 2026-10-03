@@ -8,6 +8,8 @@ if /i "%~1"=="release" goto :run_release
 if /i "%~1"=="build" goto :run_build
 if /i "%~1"=="compile" goto :run_build
 if /i "%~1"=="test" goto :run_test
+if /i "%~1"=="safemode" goto :run_safemode
+if /i "%~1"=="safe" goto :run_safemode
 if /i "%~1"=="start" goto :run_normal
 
 :menu
@@ -21,11 +23,12 @@ echo   [2] Start with Dev Studio ^& Live LogCat (--dev)
 echo   [3] Launch Packaged Release EXE
 echo   [4] Build / Compile Standalone EXE
 echo   [5] Run All Tests ^& Health Checks
+echo   [6] Start in Safe Mode (--safe-mode)
 echo.
 echo   [Q] Exit
 echo.
 echo ===================================================
-set /p "CHOICE=Select option [1-5] (Default is 1): "
+set /p "CHOICE=Select option [1-6] (Default is 1): "
 
 if "%CHOICE%"=="" goto :run_normal
 if /i "%CHOICE%"=="1" goto :run_normal
@@ -33,6 +36,7 @@ if /i "%CHOICE%"=="2" goto :run_dev
 if /i "%CHOICE%"=="3" goto :run_release
 if /i "%CHOICE%"=="4" goto :run_build
 if /i "%CHOICE%"=="5" goto :run_test
+if /i "%CHOICE%"=="6" goto :run_safemode
 if /i "%CHOICE%"=="q" exit /b 0
 
 echo Invalid selection. Please try again.
@@ -228,6 +232,16 @@ if %errorlevel% equ 0 (
 echo.
 pause
 exit /b 0
+
+:: ── Option 6: Safe Mode Launch ────────────────────────────────
+:run_safemode
+call :check_prerequisites
+if %errorlevel% neq 0 exit /b %errorlevel%
+echo.
+echo [INFO] Starting CloudStream Desktop in Safe Mode (plugins bypassed)...
+echo.
+call gradlew :desktop-app:run --args="--safe-mode"
+goto :after_run
 
 :after_run
 echo.

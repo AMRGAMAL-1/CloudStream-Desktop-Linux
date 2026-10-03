@@ -119,14 +119,14 @@ enum class DetailsSectionKey(val displayName: String, val description: String) {
         val defaultOrder = listOf(
             EPISODES,
             CAST,
-            TRAILERS,
-            SCREENSHOTS,
             COLLECTION,
             RECOMMENDATIONS,
+            TRAILERS,
+            REVIEWS,
             INFO,
             STUDIOS,
             NETWORKS,
-            REVIEWS,
+            SCREENSHOTS,
         )
 
         fun parseOrder(raw: String?): List<DetailsSectionKey> {

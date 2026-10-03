@@ -10,7 +10,7 @@ object DevStudioState {
     private val _isOpen = MutableStateFlow(false)
     val isOpen = _isOpen.asStateFlow()
 
-    private val _isDetachedWindow = MutableStateFlow(false)
+    private val _isDetachedWindow = MutableStateFlow(true)
     val isDetachedWindow = _isDetachedWindow.asStateFlow()
 
     fun toggle() {
@@ -21,7 +21,7 @@ object DevStudioState {
         }
     }
 
-    fun open(detached: Boolean = false) {
+    fun open(detached: Boolean = true) {
         _isDetachedWindow.value = detached
         _isOpen.value = true
     }

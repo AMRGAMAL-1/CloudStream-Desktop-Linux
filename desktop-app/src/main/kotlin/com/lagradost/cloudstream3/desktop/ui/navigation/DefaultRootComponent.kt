@@ -11,6 +11,7 @@ import com.arkivanov.decompose.router.stack.popTo
 import com.arkivanov.decompose.router.stack.push
 import com.arkivanov.decompose.router.stack.replaceAll
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.decompose.value.subscribe
 
 class DefaultRootComponent(
     componentContext: ComponentContext,
@@ -29,6 +30,26 @@ class DefaultRootComponent(
             handleBackButton = true, // Pops the stack on back button press
             childFactory = ::createChild,
         )
+
+    init {
+        childStack.subscribe { stack ->
+            when (val config = stack.active.configuration) {
+                is Config.Home -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Home")
+                is Config.Explore -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Explore")
+                is Config.Search -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Search")
+                is Config.Library -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Library")
+                is Config.Downloads -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Downloads")
+                is Config.History -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("History")
+                is Config.Extensions -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Extensions")
+                is Config.Settings -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Settings")
+                is Config.Details -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Details", config.preloadedName)
+                is Config.CategoryGrid -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Catalog", config.title)
+                is Config.Person -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Person", config.name)
+                is Config.Studio -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Studio", config.name)
+                is Config.FullCast -> com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.updateBrowsing("Cast & Crew", config.mediaTitle)
+            }
+        }
+    }
 
     private fun createChild(config: Config, componentContext: ComponentContext): RootComponent.Child =
         when (config) {

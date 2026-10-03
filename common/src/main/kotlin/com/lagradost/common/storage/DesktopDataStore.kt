@@ -145,7 +145,8 @@ object DesktopDataStore {
         }
     }
 
-    private val ioScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+    private val dbWriteDispatcher = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(1)
+    private val ioScope = kotlinx.coroutines.CoroutineScope(dbWriteDispatcher + kotlinx.coroutines.SupervisorJob())
 
     fun <T> setKey(key: String, value: T) {
         try {
@@ -176,6 +177,7 @@ object DesktopDataStore {
         return try {
             mapper.readValue(json, clazz)
         } catch (e: Exception) {
+            AppLogger.e("DesktopDataStore: Failed to deserialize key '$key' to ${clazz.simpleName}", e)
             null
         }
     }
@@ -193,6 +195,7 @@ object DesktopDataStore {
         return try {
             mapper.readValue(json)
         } catch (e: Exception) {
+            AppLogger.e("DesktopDataStore: Failed to deserialize key '$key'", e)
             null
         }
     }
@@ -660,6 +663,7 @@ object DesktopDataStore {
             val list: List<String> = mapper.readValue(json, object : TypeReference<List<String>>() {})
             list.map { it.lowercase().trim() }.toSet()
         } catch (e: Exception) {
+            AppLogger.e("DesktopDataStore: Failed to deserialize trusted plugins set", e)
             emptySet()
         }
     }

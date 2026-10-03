@@ -635,9 +635,9 @@ class DetailsViewModel(
     }
 
     private fun handlePlayRequest(data: Triple<MainAPI, String, WatchHistory>, forceAutoPlay: Boolean? = null) {
-        val isTorrent = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isTorrentProvider(data.first)
+        val isPureTorrent = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isPureTorrentProvider(data.first)
         val isP2pOn = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isP2pEnabled
-        val shouldAutoPlay = (forceAutoPlay ?: uiState.value.autoPlayEnabled) && (!isTorrent || isP2pOn)
+        val shouldAutoPlay = (forceAutoPlay ?: uiState.value.autoPlayEnabled) && (!isPureTorrent || isP2pOn)
         if (shouldAutoPlay) {
             val linkHistory = data.third
             val epTitle = buildString {

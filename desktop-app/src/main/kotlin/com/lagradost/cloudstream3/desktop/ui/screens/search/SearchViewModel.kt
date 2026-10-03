@@ -207,7 +207,11 @@ class SearchViewModel(
                 val providers = uiState.value.providers
 
                 val activeProviders = if (uiState.value.isGlobalSearchEnabled) {
-                    providers.filter { it.hasMainPage || it.supportedTypes.isNotEmpty() }
+                    val p2pReady = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isP2pReady
+                    providers.filter {
+                        (it.hasMainPage || it.supportedTypes.isNotEmpty()) &&
+                            (p2pReady || !com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isPureTorrentProvider(it))
+                    }
                 } else {
                     val selName = uiState.value.selectedProviderName
                     val selSource = uiState.value.selectedProviderSource

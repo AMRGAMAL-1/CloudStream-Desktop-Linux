@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -313,7 +314,7 @@ fun FullCastScreen(
                             .fillMaxWidth()
                             .weight(1f),
                     ) {
-                        items(uiState.filteredMembers, key = { it.actor.name + (it.roleString ?: "") + (it.voiceActor?.name ?: "") }) { actor ->
+                        itemsIndexed(uiState.filteredMembers, key = { index, it -> "${it.actor.name}_${it.roleString}_${it.voiceActor?.name}_$index" }) { _, actor ->
                             FullCastCard(
                                 actor = actor,
                                 provider = provider,

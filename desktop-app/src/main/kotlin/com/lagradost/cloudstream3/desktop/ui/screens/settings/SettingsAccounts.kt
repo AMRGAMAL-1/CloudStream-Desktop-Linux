@@ -196,6 +196,78 @@ fun SettingsAccounts(viewModel: SettingsViewModel) {
                 }
             }
 
+            SettingsGroupCard(title = "Subtitle Providers") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AccountManager.subtitleProviders.forEachIndexed { index, provider ->
+                        val accounts = cachedAccounts[provider.idPrefix]
+                        val isLoggedIn = !accounts.isNullOrEmpty() && accounts.firstOrNull()?.token?.accessToken?.isNotBlank() == true
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = provider.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = when {
+                                        !provider.hasInApp -> "Active (Built-in integration)"
+                                        isLoggedIn -> "API Key configured"
+                                        else -> "API Key required for external subtitle search"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isLoggedIn) MaterialTheme.colorScheme.primary else Color.Gray,
+                                )
+                            }
+
+                            if (provider.hasInApp) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (isLoggedIn) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    AccountManager.updateAccounts(provider.idPrefix, emptyArray())
+                                                    if (provider.idPrefix == "subsource") {
+                                                        DesktopDataStore.removeKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUBSOURCE_API_KEY)
+                                                    }
+                                                }
+                                            },
+                                            colors = ButtonDefaults.outlinedButtonColors(
+                                                contentColor = MaterialTheme.colorScheme.error,
+                                            ),
+                                        ) {
+                                            Text("Remove")
+                                        }
+                                        Button(
+                                            onClick = { selectedApiForLogin = provider },
+                                        ) {
+                                            Text("Edit Key")
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { selectedApiForLogin = provider },
+                                        ) {
+                                            Text("Add API Key")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (index < AccountManager.subtitleProviders.size - 1) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        }
+                    }
+                }
+            }
+
             SettingsGroupCard(title = "Trackers & Integrations") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(
@@ -270,12 +342,20 @@ fun SettingsAccounts(viewModel: SettingsViewModel) {
         }
     }
 
-    if (selectedApiForLogin != null) {
+    selectedApiForLogin?.let { targetApi ->
         InAppLoginDialog(
-            api = selectedApiForLogin!!,
+            api = targetApi,
             onDismiss = { selectedApiForLogin = null },
             onSuccess = { authData ->
-                AccountManager.updateAccounts(selectedApiForLogin!!.idPrefix, arrayOf(authData))
+                val apiPrefix = targetApi.idPrefix
+                scope.launch(Dispatchers.IO) {
+                    AccountManager.updateAccounts(apiPrefix, arrayOf(authData))
+                    if (apiPrefix == "subsource") {
+                        authData.token.accessToken?.let {
+                            DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUBSOURCE_API_KEY, it)
+                        }
+                    }
+                }
                 selectedApiForLogin = null
             },
         )
@@ -284,12 +364,16 @@ fun SettingsAccounts(viewModel: SettingsViewModel) {
 
 @Composable
 fun InAppLoginDialog(api: AuthAPI, onDismiss: () -> Unit, onSuccess: (AuthData) -> Unit) {
+    val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var server by remember { mutableStateOf("") }
-    var apiKeyStr by remember { mutableStateOf("") }
+    val initialKey = AccountManager.cachedAccounts[api.idPrefix]?.firstOrNull()?.token?.accessToken ?: ""
+    var apiKeyStr by remember { mutableStateOf(initialKey) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var isTestingApi by remember { mutableStateOf(false) }
+    var testApiStatus by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     val req = api.inAppLoginRequirement
     val isApiKeyOnly = req != null && req.apiKey && !req.username && !req.password && !req.email && !req.server
@@ -298,7 +382,7 @@ fun InAppLoginDialog(api: AuthAPI, onDismiss: () -> Unit, onSuccess: (AuthData) 
         show = true,
         onDismissRequest = onDismiss,
     ) {
-        Column(modifier = Modifier.padding(24.dp).width(400.dp)) {
+        Column(modifier = Modifier.padding(24.dp).width(440.dp)) {
             Text(if (isApiKeyOnly) "Enter API Key for ${api.name}" else "Login to ${api.name}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -350,29 +434,94 @@ fun InAppLoginDialog(api: AuthAPI, onDismiss: () -> Unit, onSuccess: (AuthData) 
             if (req?.apiKey == true) {
                 OutlinedTextField(
                     value = apiKeyStr,
-                    onValueChange = { apiKeyStr = it },
+                    onValueChange = {
+                        apiKeyStr = it
+                        if (errorMsg != null) errorMsg = null
+                        testApiStatus = null
+                    },
                     label = { Text("API Key") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            if (errorMsg != null) {
+            if (testApiStatus != null) {
+                val (isSuccess, msg) = testApiStatus!!
+                Text(
+                    text = if (isSuccess) "✓ $msg" else "✕ $msg",
+                    color = if (isSuccess) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            } else if (errorMsg != null) {
                 Text(errorMsg!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = {
-                    val authData = AuthData(
-                        user = com.lagradost.cloudstream3.syncproviders.AuthUser(name = if (username.isNotBlank()) username else "User", id = 0, profilePicture = ""),
-                        token = com.lagradost.cloudstream3.syncproviders.AuthToken(accessToken = apiKeyStr.ifBlank { "dummy_token" }),
-                    )
-                    onSuccess(authData)
-                }) { Text(if (isApiKeyOnly) "Save Key" else "Login") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isApiKeyOnly) Arrangement.SpaceBetween else Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isApiKeyOnly) {
+                    OutlinedButton(
+                        onClick = {
+                            val cleanKey = apiKeyStr.trim()
+                            if (cleanKey.isBlank()) {
+                                testApiStatus = false to "API Key cannot be empty"
+                                return@OutlinedButton
+                            }
+                            isTestingApi = true
+                            testApiStatus = null
+                            scope.launch(Dispatchers.IO) {
+                                val res = runCatching {
+                                    if (api.idPrefix == "subdl") {
+                                        val r = com.lagradost.cloudstream3.app.get("https://api.subdl.com/api/v1/subtitles?api_key=$cleanKey&film_name=matrix", timeout = 8000L).okhttpResponse
+                                        when (r.code) {
+                                            200 -> true to "Valid API Key (Connected successfully)"
+                                            400, 401, 403 -> false to "Invalid API Key (HTTP ${r.code})"
+                                            else -> false to "HTTP ${r.code}: Unexpected response"
+                                        }
+                                    } else if (api.idPrefix == "subsource") {
+                                        com.lagradost.cloudstream3.desktop.subtitles.SubsourceSubtitleProvider.testApiKey(cleanKey)
+                                    } else {
+                                        true to "API Key format verified"
+                                    }
+                                }.getOrElse { false to "Connection error: ${it.message}" }
+                                testApiStatus = res
+                                isTestingApi = false
+                            }
+                        },
+                        enabled = !isTestingApi && apiKeyStr.isNotBlank(),
+                    ) {
+                        if (isTestingApi) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Testing...")
+                        } else {
+                            Text("Test API Key")
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Button(onClick = {
+                        val cleanKey = apiKeyStr.trim()
+                        if (isApiKeyOnly && cleanKey.isBlank()) {
+                            errorMsg = "API Key cannot be empty"
+                            return@Button
+                        }
+                        val authData = AuthData(
+                            user = com.lagradost.cloudstream3.syncproviders.AuthUser(name = if (username.isNotBlank()) username.trim() else "User", id = 0, profilePicture = ""),
+                            token = com.lagradost.cloudstream3.syncproviders.AuthToken(accessToken = cleanKey),
+                        )
+                        onSuccess(authData)
+                    }) { Text(if (isApiKeyOnly) "Save Key" else "Login") }
+                }
             }
         }
     }

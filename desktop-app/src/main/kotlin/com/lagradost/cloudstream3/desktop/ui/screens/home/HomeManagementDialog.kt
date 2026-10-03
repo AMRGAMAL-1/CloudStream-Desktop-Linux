@@ -34,6 +34,7 @@ import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine
 import com.lagradost.cloudstream3.desktop.ui.components.AppToastManager
 import com.lagradost.cloudstream3.desktop.ui.components.CategoryFilterChips
+import com.lagradost.cloudstream3.desktop.ui.components.CloudstreamAlertDialog
 import com.lagradost.cloudstream3.desktop.ui.components.CloudstreamCustomDialog
 import com.lagradost.cloudstream3.desktop.ui.components.P2pTorrentDisclaimerDialog
 import com.lagradost.common.storage.DesktopDataStore
@@ -46,12 +47,15 @@ fun HomeManagementDialog(
     allProviders: List<MainAPI>,
     activeProviders: List<String>,
     disabledCatalogs: Map<String, Set<String>>,
+    orderedCatalogs: Map<String, List<String>> = emptyMap(),
     pluginIcons: Map<String, String>,
     onDismissRequest: () -> Unit,
     onSetSingleProvider: (String) -> Unit,
     onToggleProviderActive: (String, Boolean) -> Unit,
     onMoveProvider: (Int, Int) -> Unit,
     onToggleCatalog: (String, String, Boolean) -> Unit,
+    onMoveCatalog: (String, Int, Int) -> Unit = { _, _, _ -> },
+    onResetCatalogOrder: (String) -> Unit = {},
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isAdvancedMode by remember { mutableStateOf(activeProviders.size > 1) }
@@ -60,6 +64,7 @@ fun HomeManagementDialog(
     var pendingTorrentProviderKey by remember { mutableStateOf<String?>(null) }
     var pendingTorrentProviderName by remember { mutableStateOf<String?>(null) }
     var showTorrentDisclaimer by remember { mutableStateOf(false) }
+    var showHybridTorrentDialog by remember { mutableStateOf(false) }
 
     fun fuzzyMatchIcon(providerName: String): String? {
         val pName = providerName.lowercase().replace(Regex("[^a-z0-9]"), "").replace("provider", "").replace("plugin", "")
@@ -103,7 +108,7 @@ fun HomeManagementDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (catalogProvider != null) {
-                            "Enable or disable specific catalogs."
+                            "Enable, disable, and drag to reorder catalogs."
                         } else if (isAdvancedMode) {
                             "Mix, reorder, and customize multiple providers."
                         } else {
@@ -113,7 +118,20 @@ fun HomeManagementDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (catalogProvider == null) {
+                if (catalogProvider != null) {
+                    val p = catalogProvider!!
+                    val hasCustomOrder = orderedCatalogs[p.name]?.isNotEmpty() == true
+                    if (hasCustomOrder) {
+                        OutlinedButton(
+                            onClick = { onResetCatalogOrder(p.name) },
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Reset Order", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Enable Multi-Provider Feed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(modifier = Modifier.width(8.dp))
@@ -172,35 +190,190 @@ fun HomeManagementDialog(
                         }
                     } else {
                         val provDisabled = disabledCatalogs[p.name] ?: emptySet()
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 350.dp),
-                            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        val customOrder = orderedCatalogs[p.name] ?: emptyList()
+                        val sortedCatalogs = remember(p.mainPage, customOrder) {
+                            if (customOrder.isNotEmpty()) {
+                                val orderMap = customOrder.withIndex().associate { it.value to it.index }
+                                p.mainPage.sortedBy { orderMap[it.name] ?: Int.MAX_VALUE }
+                            } else {
+                                p.mainPage
+                            }
+                        }
+
+                        var draggingCatalogKey by remember { mutableStateOf<String?>(null) }
+                        var catalogDragAccumulatedY by remember { mutableStateOf(0f) }
+                        var catalogDragInitialIndex by remember { mutableStateOf(0) }
+                        var catalogSlotHeightPx by remember { mutableStateOf(0f) }
+                        val fallbackCatalogHeight = with(LocalDensity.current) { 56.dp.toPx() }
+
+                        val effectiveSlotHeight = if (catalogSlotHeightPx > 0f) catalogSlotHeightPx else fallbackCatalogHeight
+                        val currentTargetIndex = if (draggingCatalogKey != null && effectiveSlotHeight > 0f) {
+                            (catalogDragInitialIndex + kotlin.math.round(catalogDragAccumulatedY / effectiveSlotHeight).toInt())
+                                .coerceIn(0, sortedCatalogs.lastIndex)
+                        } else catalogDragInitialIndex
+
+                        val currentSortedCatalogs by rememberUpdatedState(sortedCatalogs)
+                        val currentEffectiveSlotHeight by rememberUpdatedState(effectiveSlotHeight)
+                        val currentCatalogDragAccumulatedY by rememberUpdatedState(catalogDragAccumulatedY)
+                        val currentCatalogDragInitialIndex by rememberUpdatedState(catalogDragInitialIndex)
+
+                        val onDropCatalog by rememberUpdatedState {
+                            val fromIdx = currentCatalogDragInitialIndex
+                            val slotH = currentEffectiveSlotHeight
+                            val accY = currentCatalogDragAccumulatedY
+                            val toIdx = if (slotH > 0f) {
+                                (fromIdx + kotlin.math.round(accY / slotH).toInt())
+                                    .coerceIn(0, currentSortedCatalogs.lastIndex)
+                            } else fromIdx
+                            draggingCatalogKey = null
+                            catalogDragAccumulatedY = 0f
+                            if (fromIdx != toIdx && fromIdx in currentSortedCatalogs.indices && toIdx in currentSortedCatalogs.indices) {
+                                onMoveCatalog(p.name, fromIdx, toIdx)
+                            }
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(p.mainPage.size) { i ->
-                                val catalog = p.mainPage[i]
+                            itemsIndexed(sortedCatalogs, key = { index, cat -> "${p.name}_${cat.name}_${cat.data}_$index" }) { index, catalog ->
+                                val catalogKey = "${p.name}_${catalog.name}_${catalog.data}_$index"
                                 val isEnabled = catalog.name !in provDisabled
-                                Row(
+                                val isDraggingThis = draggingCatalogKey == catalogKey
+
+                                val targetShiftY = when {
+                                    isDraggingThis -> catalogDragAccumulatedY
+                                    draggingCatalogKey != null && catalogDragInitialIndex < currentTargetIndex && index in (catalogDragInitialIndex + 1)..currentTargetIndex -> -effectiveSlotHeight
+                                    draggingCatalogKey != null && catalogDragInitialIndex > currentTargetIndex && index in currentTargetIndex until catalogDragInitialIndex -> effectiveSlotHeight
+                                    else -> 0f
+                                }
+                                val animatedShiftY by androidx.compose.animation.core.animateFloatAsState(
+                                    targetValue = targetShiftY,
+                                    animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                                )
+
+                                val elevation by androidx.compose.animation.core.animateDpAsState(if (isDraggingThis) 12.dp else 0.dp)
+                                val scale by androidx.compose.animation.core.animateFloatAsState(if (isDraggingThis) 1.02f else 1.0f)
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isDraggingThis) {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    } else if (isEnabled) {
+                                        MaterialTheme.colorScheme.surface
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (isDraggingThis) 1.5.dp else 0.5.dp,
+                                        if (isDraggingThis) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.08f),
+                                    ),
+                                    shadowElevation = elevation,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant)
-                                        .clickable { onToggleCatalog(p.name, catalog.name, !isEnabled) }
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                        .onGloballyPositioned { coordinates ->
+                                            if (coordinates.size.height > 0 && catalogSlotHeightPx == 0f) {
+                                                catalogSlotHeightPx = coordinates.size.height.toFloat() + 8f
+                                            }
+                                        }
+                                        .zIndex(if (isDraggingThis) 100f else 1f)
+                                        .scale(scale)
+                                        .graphicsLayer {
+                                            translationY = if (isDraggingThis) catalogDragAccumulatedY else animatedShiftY
+                                        },
                                 ) {
-                                    Text(
-                                        text = catalog.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Switch(checked = isEnabled, onCheckedChange = { onToggleCatalog(p.name, catalog.name, it) })
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        // Drag Grip Handle
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isDraggingThis) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .pointerInput(catalogKey) {
+                                                    detectDragGestures(
+                                                        onDragStart = {
+                                                            draggingCatalogKey = catalogKey
+                                                            catalogDragInitialIndex = index
+                                                            catalogDragAccumulatedY = 0f
+                                                        },
+                                                        onDragEnd = { onDropCatalog() },
+                                                        onDragCancel = {
+                                                            draggingCatalogKey = null
+                                                            catalogDragAccumulatedY = 0f
+                                                        },
+                                                    ) { change, dragAmount ->
+                                                        change.consume()
+                                                        catalogDragAccumulatedY += dragAmount.y
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Default.DragIndicator,
+                                                contentDescription = "Hold and drag to reorder",
+                                                tint = if (isDraggingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Text(
+                                            text = "${index + 1}.",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                            modifier = Modifier.width(32.dp),
+                                        )
+
+                                        Text(
+                                            text = catalog.name,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+
+                                        // Move Up / Down Buttons
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                                .padding(horizontal = 4.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = { onMoveCatalog(p.name, index, index - 1) },
+                                                enabled = index > 0,
+                                                modifier = Modifier.size(28.dp),
+                                            ) {
+                                                Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { onMoveCatalog(p.name, index, index + 1) },
+                                                enabled = index < sortedCatalogs.lastIndex,
+                                                modifier = Modifier.size(28.dp),
+                                            ) {
+                                                Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(16.dp))
+
+                                        Switch(
+                                            checked = isEnabled,
+                                            onCheckedChange = { onToggleCatalog(p.name, catalog.name, it) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -237,10 +410,14 @@ fun HomeManagementDialog(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
                                     .clickable {
-                                        if (DesktopTorrentEngine.isTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
+                                        if (DesktopTorrentEngine.isPureTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
                                             pendingTorrentProviderKey = pKey
                                             pendingTorrentProviderName = provider.name
                                             showTorrentDisclaimer = true
+                                        } else if (DesktopTorrentEngine.isHybridTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
+                                            pendingTorrentProviderKey = pKey
+                                            pendingTorrentProviderName = provider.name
+                                            showHybridTorrentDialog = true
                                         } else {
                                             onSetSingleProvider(pKey)
                                             onDismissRequest()
@@ -300,15 +477,16 @@ fun HomeManagementDialog(
                                             )
                                         }
                                         if (DesktopTorrentEngine.isTorrentProvider(provider)) {
+                                            val isHybrid = DesktopTorrentEngine.isHybridTorrentProvider(provider)
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                color = (if (isHybrid) Color(0xFF2563EB) else Color(0xFFF59E0B)).copy(alpha = 0.2f),
                                             ) {
                                                 Text(
-                                                    text = "⚡ Torrent",
+                                                    text = if (isHybrid) "⚡ Hybrid (Direct + P2P)" else "⚡ Torrent",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = Color(0xFFF59E0B),
+                                                    color = if (isHybrid) Color(0xFF60A5FA) else Color(0xFFF59E0B),
                                                     fontWeight = FontWeight.Bold,
                                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                                 )
@@ -373,7 +551,7 @@ fun HomeManagementDialog(
                                     modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)).padding(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    itemsIndexed(activeProviders, key = { _, name -> name }) { index, providerName ->
+                                    itemsIndexed(activeProviders, key = { index, name -> "${name}_$index" }) { index, providerName ->
                                         val provider = allProviders.find {
                                             val pKey = if (it.sourcePlugin != null && it.sourcePlugin != "built-in") {
                                                 "${java.io.File(it.sourcePlugin).parentFile?.name ?: ""}::${it.name}"
@@ -402,6 +580,7 @@ fun HomeManagementDialog(
                                                 provider = provider,
                                                 iconUrl = fuzzyMatchIcon(providerName),
                                                 disabledCatalogs = disabledCatalogs[providerName] ?: emptySet(),
+                                                orderedCatalogs = orderedCatalogs[providerName] ?: emptyList(),
                                                 isAdvancedMode = isAdvancedMode,
                                                 isDraggingThis = isDraggingThis,
                                                 dragOffsetY = if (isDraggingThis) providerDragAccumulatedY else animatedShiftY,
@@ -429,6 +608,7 @@ fun HomeManagementDialog(
                                                 onMoveDown = { onMoveProvider(index, index + 1) },
                                                 onRemove = { onToggleProviderActive(providerName, false) },
                                                 onToggleCatalog = { catalog, isEnabled -> onToggleCatalog(providerName, catalog, isEnabled) },
+                                                onMoveCatalog = { from, to -> onMoveCatalog(providerName, from, to) },
                                             )
                                         }
                                     }
@@ -535,15 +715,16 @@ fun HomeManagementDialog(
                                                         )
                                                     }
                                                     if (DesktopTorrentEngine.isTorrentProvider(provider)) {
+                                                        val isHybrid = DesktopTorrentEngine.isHybridTorrentProvider(provider)
                                                         Spacer(modifier = Modifier.width(6.dp))
                                                         Surface(
                                                             shape = RoundedCornerShape(4.dp),
-                                                            color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                                            color = (if (isHybrid) Color(0xFF2563EB) else Color(0xFFF59E0B)).copy(alpha = 0.2f),
                                                         ) {
                                                             Text(
-                                                                text = "⚡ Torrent",
+                                                                text = if (isHybrid) "⚡ Hybrid (Direct + P2P)" else "⚡ Torrent",
                                                                 style = MaterialTheme.typography.labelSmall,
-                                                                color = Color(0xFFF59E0B),
+                                                                color = if (isHybrid) Color(0xFF60A5FA) else Color(0xFFF59E0B),
                                                                 fontWeight = FontWeight.Bold,
                                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                                             )
@@ -553,10 +734,14 @@ fun HomeManagementDialog(
                                                 Text("${provider.mainPage.size} catalogs available", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                             FilledTonalIconButton(onClick = {
-                                                if (DesktopTorrentEngine.isTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
+                                                if (DesktopTorrentEngine.isPureTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
                                                     pendingTorrentProviderKey = pKey
                                                     pendingTorrentProviderName = provider.name
                                                     showTorrentDisclaimer = true
+                                                } else if (DesktopTorrentEngine.isHybridTorrentProvider(provider) && !DesktopTorrentEngine.isP2pEnabled) {
+                                                    pendingTorrentProviderKey = pKey
+                                                    pendingTorrentProviderName = provider.name
+                                                    showHybridTorrentDialog = true
                                                 } else {
                                                     onToggleProviderActive(pKey, true)
                                                 }
@@ -626,6 +811,78 @@ fun HomeManagementDialog(
             pendingTorrentProviderName = null
         },
     )
+
+    CloudstreamAlertDialog(
+        show = showHybridTorrentDialog,
+        onDismissRequest = {
+            showHybridTorrentDialog = false
+            pendingTorrentProviderKey = null
+            pendingTorrentProviderName = null
+        },
+        title = { Text("Hybrid Provider (Direct + P2P)") },
+        text = {
+            Text(
+                "The provider '${pendingTorrentProviderName ?: "Selected"}' contains both direct streaming and torrent scrapers.\n\n" +
+                "TorrServer is currently disabled. Would you like to enable P2P to use all sources, or continue with direct streams only (torrents will be auto-skipped in real time)?"
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    showHybridTorrentDialog = false
+                    val key = pendingTorrentProviderKey
+                    coroutineScope.launch(Dispatchers.IO) {
+                        DesktopDataStore.setKey(DesktopDataStore.PREF_P2P_ENABLED, true)
+                    }
+                    AppToastManager.showSuccess("P2P Torrent Streaming enabled")
+                    if (key != null) {
+                        if (isAdvancedMode) {
+                            onToggleProviderActive(key, true)
+                        } else {
+                            onSetSingleProvider(key)
+                            onDismissRequest()
+                        }
+                    }
+                    pendingTorrentProviderKey = null
+                    pendingTorrentProviderName = null
+                }
+            ) {
+                Text("Enable P2P & Use All Sources", color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        showHybridTorrentDialog = false
+                        pendingTorrentProviderKey = null
+                        pendingTorrentProviderName = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+                TextButton(
+                    onClick = {
+                        showHybridTorrentDialog = false
+                        val key = pendingTorrentProviderKey
+                        AppToastManager.showInfo("Using direct streams only (torrents skipped)")
+                        if (key != null) {
+                            if (isAdvancedMode) {
+                                onToggleProviderActive(key, true)
+                            } else {
+                                onSetSingleProvider(key)
+                                onDismissRequest()
+                            }
+                        }
+                        pendingTorrentProviderKey = null
+                        pendingTorrentProviderName = null
+                    }
+                ) {
+                    Text("Direct Streams Only")
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -635,6 +892,7 @@ private fun ActiveProviderItem(
     provider: MainAPI,
     iconUrl: String?,
     disabledCatalogs: Set<String>,
+    orderedCatalogs: List<String> = emptyList(),
     isAdvancedMode: Boolean,
     isDraggingThis: Boolean = false,
     dragOffsetY: Float = 0f,
@@ -647,6 +905,7 @@ private fun ActiveProviderItem(
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
     onToggleCatalog: (String, Boolean) -> Unit,
+    onMoveCatalog: (Int, Int) -> Unit = { _, _ -> },
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val elevation by animateDpAsState(if (isDraggingThis) 24.dp else 0.dp)
@@ -783,10 +1042,19 @@ private fun ActiveProviderItem(
                 Text("Toggle Catalogs", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (provider.mainPage.isEmpty()) {
+                val sortedCatalogs = remember(provider.mainPage, orderedCatalogs) {
+                    if (orderedCatalogs.isNotEmpty()) {
+                        val orderMap = orderedCatalogs.withIndex().associate { it.value to it.index }
+                        provider.mainPage.sortedBy { orderMap[it.name] ?: Int.MAX_VALUE }
+                    } else {
+                        provider.mainPage
+                    }
+                }
+
+                if (sortedCatalogs.isEmpty()) {
                     Text("No catalogs available.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    provider.mainPage.forEach { catalog ->
+                    sortedCatalogs.forEachIndexed { catIdx, catalog ->
                         val isEnabled = catalog.name !in disabledCatalogs
                         Row(
                             modifier = Modifier
@@ -798,17 +1066,38 @@ private fun ActiveProviderItem(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(
-                                text = catalog.name,
+                                text = "${catIdx + 1}. ${catalog.name}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = if (isEnabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                    .padding(horizontal = 4.dp),
+                            ) {
+                                IconButton(
+                                    onClick = { onMoveCatalog(catIdx, catIdx - 1) },
+                                    enabled = catIdx > 0,
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(14.dp))
+                                }
+                                IconButton(
+                                    onClick = { onMoveCatalog(catIdx, catIdx + 1) },
+                                    enabled = catIdx < sortedCatalogs.lastIndex,
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(14.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Switch(
                                 checked = isEnabled,
                                 onCheckedChange = { onToggleCatalog(catalog.name, it) },
-                                modifier = Modifier.padding(start = 16.dp),
                             )
                         }
                     }

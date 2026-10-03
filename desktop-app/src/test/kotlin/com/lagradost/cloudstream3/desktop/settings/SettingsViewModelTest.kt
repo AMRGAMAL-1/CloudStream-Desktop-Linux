@@ -26,7 +26,7 @@ class SettingsViewModelTest {
         assertTrue(state.floatSettings.isEmpty())
         assertEquals("", state.downloadPath)
         assertEquals("", state.screenshotPath)
-        assertFalse(state.isDevModeEnabled)
+        assertTrue(state.isDevModeEnabled)
         assertNull(state.devModeError)
         assertFalse(state.isOptimizingDb)
         assertFalse(state.isRefreshingStorage)

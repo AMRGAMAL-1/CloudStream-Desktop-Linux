@@ -11,8 +11,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.lagradost.cloudstream3.desktop.core.preference.PreferenceKeys
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -24,6 +27,17 @@ object DesktopRepositoryManager {
 
     private val repoCache = java.util.concurrent.ConcurrentHashMap<String, Repository>()
     private val pluginsCache = java.util.concurrent.ConcurrentHashMap<String, List<SitePlugin>>()
+    private val networkThrottle = Semaphore(3)
+
+    val AUTO_UPDATE_COOLDOWN_MS = 4 * 60 * 60 * 1000L // 4 hours
+
+    fun getLastSyncTimestamp(): Long {
+        return com.lagradost.common.storage.DesktopDataStore.getKey<Long>(PreferenceKeys.LAST_PLUGIN_SYNC_TIMESTAMP) ?: 0L
+    }
+
+    fun setLastSyncTimestamp(time: Long) {
+        com.lagradost.common.storage.DesktopDataStore.setKey(PreferenceKeys.LAST_PLUGIN_SYNC_TIMESTAMP, time)
+    }
 
     private val _savedRepositories = MutableStateFlow<List<RepositoryData>>(emptyList())
     val savedRepositories: StateFlow<List<RepositoryData>> = _savedRepositories.asStateFlow()
@@ -157,10 +171,11 @@ object DesktopRepositoryManager {
         return data.copy(iconUrl = icon, name = name)
     }
 
-    suspend fun saveRepository(repository: RepositoryData) = syncMutex.withLock {
+    suspend fun saveRepository(repository: RepositoryData): Boolean = syncMutex.withLock {
         val incoming = normalizeRepositoryData(repository)
         val current = readRepositoriesFromDisk().toMutableList()
         val index = current.indexOfFirst { it.url == incoming.url }
+        val isNew = index < 0
         if (index >= 0) {
             val existing = current[index]
             current[index] = existing.copy(
@@ -171,6 +186,7 @@ object DesktopRepositoryManager {
             current.add(incoming)
         }
         writeRepositoriesToDisk(current.distinctBy { it.url })
+        isNew
     }
 
     suspend fun removeRepository(url: String) = syncMutex.withLock {
@@ -307,6 +323,7 @@ object DesktopRepositoryManager {
                 }
             }
         } catch (e: Exception) {
+            AppLogger.w("Failed to read plugin manifest from ${jarFile.name}: ${e.message}")
             return null
         }
     }
@@ -370,7 +387,9 @@ object DesktopRepositoryManager {
                         AppLogger.e("Failed to auto-update plugin $internalName in $localRepoDirName", e)
                         try {
                             com.lagradost.runtime.loader.ExtensionLoader.loadAndInit(jar)
-                        } catch (_: Throwable) {}
+                        } catch (rollbackErr: Throwable) {
+                            AppLogger.e("Failed to reload rollback JAR for ${jar.name} after failed update", rollbackErr)
+                        }
                     }
                 }
             }
@@ -404,7 +423,9 @@ object DesktopRepositoryManager {
         coroutineScope {
             getSavedRepositories().map { saved ->
                 async {
-                    val manifest = PluginNetworkClient.fetchRepository(saved.url) ?: return@async
+                    val manifest = networkThrottle.withPermit {
+                        PluginNetworkClient.fetchRepository(saved.url)
+                    } ?: return@async
                     repoCache[saved.url] = manifest
                     updates[saved.url] = Pair(manifest.iconUrl, manifest.name)
                     AppLogger.i("Refreshed repo metadata: ${manifest.name}")
@@ -441,13 +462,17 @@ object DesktopRepositoryManager {
             savedRepos.map { saved ->
                 async {
                     try {
-                        val repo = PluginNetworkClient.fetchRepository(saved.url)
+                        val repo = networkThrottle.withPermit {
+                            PluginNetworkClient.fetchRepository(saved.url)
+                        }
                         if (repo != null) {
                             repoCache[saved.url] = repo
                             repo.pluginLists.map { listUrl ->
                                 async {
                                     try {
-                                        val plugins = PluginNetworkClient.fetchPlugins(listUrl)
+                                        val plugins = networkThrottle.withPermit {
+                                            PluginNetworkClient.fetchPlugins(listUrl)
+                                        }
                                         pluginsCache[listUrl] = plugins
                                         plugins.forEach { plugin ->
                                             val icon = plugin.iconUrl
@@ -457,11 +482,14 @@ object DesktopRepositoryManager {
                                             }
                                         }
                                         total.addAndGet(plugins.size)
-                                    } catch (_: Exception) {}
+                                    } catch (e: Exception) {
+                                        AppLogger.w("Failed to fetch or parse plugins list from $listUrl: ${e.message}")
+                                    }
                                 }
                             }.awaitAll()
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        AppLogger.w("Failed to fetch repository manifest from ${saved.url}: ${e.message}")
                     } finally {
                         val done = completedCounter.incrementAndGet()
                         _remotePluginIcons.value = iconMap + scanLocalPluginIcons()
@@ -482,9 +510,12 @@ object DesktopRepositoryManager {
     suspend fun autoUpdatePlugins(force: Boolean = false): List<com.lagradost.common.storage.PluginUpdateRecord> = withContext(Dispatchers.IO) {
         autoUpdateMutex.withLock {
             val now = System.currentTimeMillis()
-            val last = lastAutoUpdateTime.get()
-            if (!force && now - last < autoUpdateCooldown) return@withContext emptyList()
-            lastAutoUpdateTime.set(now)
+            val last = getLastSyncTimestamp()
+            if (!force && now - last < AUTO_UPDATE_COOLDOWN_MS) {
+                AppLogger.i("Skipping autoUpdatePlugins; last sync was ${(now - last) / 60000}m ago (cooldown: 4h)")
+                return@withContext emptyList()
+            }
+            setLastSyncTimestamp(now)
 
             val updatedList = mutableListOf<com.lagradost.common.storage.PluginUpdateRecord>()
             val savedRepos = getSavedRepositories()
@@ -558,6 +589,7 @@ object DesktopRepositoryManager {
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    AppLogger.w("Auto-update check failed for repository '${saved.name}': ${e.message}")
                 }
             }
             if (updatedList.isNotEmpty()) {
@@ -576,8 +608,9 @@ object DesktopRepositoryManager {
     fun getAllPlugins(): List<Pair<String, SitePlugin>> {
         val list = mutableListOf<Pair<String, SitePlugin>>()
         for (saved in getSavedRepositories()) {
-            val repo = repoCache[saved.url] ?: continue
-            for (listUrl in repo.pluginLists) {
+            val repo = repoCache[saved.url]
+            val lists = repo?.pluginLists?.takeIf { it.isNotEmpty() } ?: listOf(getPluginsJsonUrl(saved.url))
+            for (listUrl in lists) {
                 pluginsCache[listUrl]?.forEach { list.add(Pair(saved.name, it)) }
             }
         }
@@ -585,8 +618,23 @@ object DesktopRepositoryManager {
             .sortedWith(compareBy({ it.second.name.lowercase() }, { it.first }))
     }
 
-    suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)? = null): SyncReport = withContext(Dispatchers.IO) {
+    suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)? = null, force: Boolean = false): SyncReport = withContext(Dispatchers.IO) {
         syncMutex.withLock {
+            val now = System.currentTimeMillis()
+            val last = getLastSyncTimestamp()
+            val needsInitialCatalog = pluginsCache.isEmpty() || repoCache.isEmpty()
+            if (!force && !needsInitialCatalog && now - last < AUTO_UPDATE_COOLDOWN_MS) {
+                AppLogger.i("Skipping syncAll; last sync was ${(now - last) / 60000}m ago (cooldown: 4h)")
+                return@withContext SyncReport(
+                    reposRefreshed = 0,
+                    catalogPlugins = 0,
+                    pluginsUpdated = 0,
+                    iconsCached = _remotePluginIcons.value.size,
+                    newPluginsLoaded = 0,
+                )
+            }
+            setLastSyncTimestamp(now)
+
             val reposRefreshed = refreshAllRepositoryMetadata()
             val catalogPlugins = rebuildRemotePluginCatalog { _, done, total ->
                 onProgress?.invoke(done, total)

@@ -67,7 +67,7 @@ object SafePluginInvoker {
             Thread.currentThread().contextClassLoader,
         )
         return try {
-            val result = withContext(PluginDispatcher + PluginClassLoaderElement(compositeClassLoader)) {
+            val result = withContext(PluginDispatcher.limitedParallelism(6) + PluginClassLoaderElement(compositeClassLoader)) {
                 executingThread.set(Thread.currentThread())
                 try {
                     withTimeout(timeoutMs) {

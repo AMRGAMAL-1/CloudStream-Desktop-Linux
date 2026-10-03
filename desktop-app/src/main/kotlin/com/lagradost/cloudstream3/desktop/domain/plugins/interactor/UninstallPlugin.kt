@@ -33,7 +33,8 @@ class UninstallPlugin(
             ExtensionLoader.removeTrusted(file, internalName, manifestName = name)
             repository.incrementSyncGeneration()
             return true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            com.lagradost.common.logging.AppLogger.e("UninstallPlugin: Failed to uninstall plugin ${file.name}", t)
             return false
         }
     }

@@ -249,6 +249,7 @@ class ExtensionsViewModel(
             val cleanupFailedArtifacts = {
                 try {
                     ExtensionLoader.unloadPlugin(jarFile.absolutePath)
+                    ExtensionLoader.clearFailedMarker(jarFile)
                     if (jarFile.exists()) jarFile.delete()
                     if (jvmJarFile.exists()) jvmJarFile.delete()
                     if (dexFile.exists()) dexFile.delete()
@@ -261,8 +262,9 @@ class ExtensionsViewModel(
                 }
                 if (downloadedFile != null) {
                     withContext(Dispatchers.IO) {
+                        ExtensionLoader.clearFailedMarker(downloadedFile)
                         ExtensionLoader.unloadPlugin(downloadedFile.absolutePath)
-                        ExtensionLoader.loadAndInit(downloadedFile)
+                        ExtensionLoader.loadAndInit(downloadedFile, forceRetry = true)
                     }
                     refreshInstalled()
                     pluginRepo.incrementSyncGeneration()
@@ -307,6 +309,7 @@ class ExtensionsViewModel(
             val cleanupFailedArtifacts = {
                 try {
                     ExtensionLoader.unloadPlugin(jarFile.absolutePath)
+                    ExtensionLoader.clearFailedMarker(jarFile)
                     if (jarFile.exists()) jarFile.delete()
                     if (jvmJarFile.exists()) jvmJarFile.delete()
                     if (dexFile.exists()) dexFile.delete()
@@ -322,8 +325,9 @@ class ExtensionsViewModel(
                 }
                 if (downloadedFile != null) {
                     withContext(Dispatchers.IO) {
+                        ExtensionLoader.clearFailedMarker(downloadedFile)
                         ExtensionLoader.unloadPlugin(downloadedFile.absolutePath)
-                        ExtensionLoader.loadAndInit(downloadedFile, forceBypassSecurity = true)
+                        ExtensionLoader.loadAndInit(downloadedFile, forceBypassSecurity = true, forceRetry = true)
                     }
                     refreshInstalled()
                     pluginRepo.incrementSyncGeneration()
@@ -451,7 +455,8 @@ class ExtensionsViewModel(
             val targetFile = File(targetDir, file.name)
             file.copyTo(targetFile, overwrite = true)
             try {
-                ExtensionLoader.loadAndInit(targetFile)
+                ExtensionLoader.clearFailedMarker(targetFile)
+                ExtensionLoader.loadAndInit(targetFile, forceRetry = true)
             } catch (e: Exception) {
                 com.lagradost.common.logging.AppLogger.e("Error loading local plugin", e)
             }
@@ -463,8 +468,10 @@ class ExtensionsViewModel(
     private fun reloadPluginAfterSettings(file: File, pluginName: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                ExtensionLoader.clearFailedMarker(file)
                 ExtensionLoader.unloadPlugin(file.absolutePath)
-                ExtensionLoader.loadAndInit(file, forceBypassSecurity = true)
+                ExtensionLoader.loadAndInit(file, forceBypassSecurity = true, forceRetry = true)
+                refreshInstalled()
                 pluginRepo.incrementSyncGeneration()
                 com.lagradost.common.logging.AppLogger.i("Reloaded plugin $pluginName after settings update")
                 com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showSuccess("Reloaded '$pluginName'")

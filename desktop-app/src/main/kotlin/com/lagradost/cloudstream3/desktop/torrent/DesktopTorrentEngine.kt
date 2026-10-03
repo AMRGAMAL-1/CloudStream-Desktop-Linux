@@ -59,6 +59,9 @@ object DesktopTorrentEngine {
     val isP2pEnabled: Boolean
         get() = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_P2P_ENABLED) ?: false
 
+    val isP2pReady: Boolean
+        get() = isP2pEnabled && binary.isInstalled()
+
     fun isTorrentProvider(provider: com.lagradost.cloudstream3.MainAPI?): Boolean {
         if (provider == null) return false
         return provider.supportedTypes.any { it.name.contains("Torrent", ignoreCase = true) } ||
@@ -66,6 +69,22 @@ object DesktopTorrentEngine {
                 provider.name.equals("yts", ignoreCase = true) ||
                 provider.mainUrl.contains("yts", ignoreCase = true) ||
                 provider.mainUrl.contains("torrent", ignoreCase = true)
+    }
+
+    fun isPureTorrentProvider(provider: com.lagradost.cloudstream3.MainAPI?): Boolean {
+        if (provider == null) return false
+        val types = provider.supportedTypes
+        val hasTorrent = isTorrentProvider(provider)
+        val hasNonTorrent = types.any { !it.name.contains("Torrent", ignoreCase = true) }
+        return hasTorrent && !hasNonTorrent
+    }
+
+    fun isHybridTorrentProvider(provider: com.lagradost.cloudstream3.MainAPI?): Boolean {
+        if (provider == null) return false
+        val types = provider.supportedTypes
+        val hasTorrent = isTorrentProvider(provider)
+        val hasNonTorrent = types.any { !it.name.contains("Torrent", ignoreCase = true) }
+        return hasTorrent && hasNonTorrent
     }
 
     fun isTorrentUrl(rawUrl: String?): Boolean {

@@ -145,49 +145,30 @@
 </div>
 
 
-<!-- ── Video Ended Dialog ────────────────────────────────────────────── -->
-<div id="videoEndedOverlay">
-    <div class="video-ended-modal">
-        <div class="video-ended-header">
-            <div class="video-ended-meta-row">
-                <span id="videoEndedHeaderTitle" class="video-ended-badge">UP NEXT</span>
-                <span id="videoEndedSubtext" class="video-ended-subtext">Playing automatically in 5s</span>
-            </div>
-            <button id="btnDismissEnded" class="video-ended-close-btn" title="Dismiss">✕</button>
-        </div>
+<!-- ── Video Ended / Up Next Docked Card ────────────────────────────── -->
+<div id="videoEndedOverlay" class="video-ended-toast-container" style="display: none;">
+    <div id="videoEndedNextCard" class="video-ended-card" title="Click to play next episode">
+        <button id="btnDismissEnded" class="video-ended-dismiss-btn" title="Cancel autoplay (Stay on credits)">✕</button>
 
-        <div id="videoEndedNextCard" class="video-ended-next-card" style="display: none;">
-            <div class="video-ended-thumb-wrap">
-                <img id="videoEndedThumb" class="video-ended-thumb" src="" alt="">
-                <div class="video-ended-play-overlay">
-                    <div class="video-ended-play-pill">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
-                    </div>
-                </div>
+        <div class="video-ended-thumb-wrap">
+            <img id="videoEndedThumb" class="video-ended-thumb" src="" alt="">
+            <div class="video-ended-play-icon">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             </div>
-            <div class="video-ended-next-info">
-                <div id="videoEndedNextEp" class="video-ended-next-ep">S1:E2</div>
-                <div id="videoEndedNextTitle" class="video-ended-next-title">Episode Name</div>
-                <div id="videoEndedNextDesc" class="video-ended-next-desc">Description...</div>
+            <div class="video-ended-progress-track">
+                <div id="videoEndedProgressBar" class="video-ended-progress-fill"></div>
             </div>
         </div>
 
-        <div class="video-ended-actions">
-            <button id="btnNextEpisode" class="rbtn primary" style="display: none;">
-                <svg class="video-ended-ring-svg" viewBox="0 0 32 32" width="16" height="16">
-                    <circle class="ring-bg" cx="16" cy="16" r="13"/>
-                    <circle class="ring-fill" cx="16" cy="16" r="13"/>
-                </svg>
-                <span id="btnNextEpisodeLabel">Play Next Episode</span>
-            </button>
-            <button id="btnReplay" class="rbtn secondary">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
-                <span>Replay</span>
-            </button>
-            <button id="btnExitPlayer" class="rbtn secondary">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                <span>Exit</span>
-            </button>
+        <div class="video-ended-info">
+            <div id="videoEndedNextTitle" class="video-ended-title">Next Episode</div>
+            <div class="video-ended-meta">
+                <span id="videoEndedNextEp">S1 E2</span>
+                <span class="video-ended-dot">•</span>
+                <span id="videoEndedSubtext" class="video-ended-timer-text">Next in 15s</span>
+                <span id="videoEndedDuration" class="video-ended-duration"></span>
+            </div>
+            <div id="videoEndedNextDesc" class="video-ended-desc"></div>
         </div>
     </div>
 </div>
@@ -449,7 +430,48 @@
     <div class="panel-body" style="padding: 12px 16px;">
         <!-- Tab 1: Subtitle Style -->
         <div class="settings-tab-content active" id="sub-style">
-            <!-- Card 1: Typography -->
+            <!-- Card 1: Processing & Overrides -->
+            <div class="settings-card">
+                <div class="settings-card-title">Processing & Overrides</div>
+                <div class="settings-row">
+                    <div>
+                        <div class="settings-label-text">Override Embedded Styles</div>
+                        <div class="settings-sublabel">Forces custom typography and styles over ASS subtitles</div>
+                    </div>
+                    <button class="desktop-switch active" id="btnToggleSubOverride">
+                        <div class="desktop-switch-thumb"></div>
+                    </button>
+                </div>
+                <div class="settings-row" style="margin-top: 10px;">
+                    <div>
+                        <div class="settings-label-text">Remove Closed Captions (CC / SDH)</div>
+                        <div class="settings-sublabel">Filters out sound effects [MUSIC] and speaker tags</div>
+                    </div>
+                    <button class="desktop-switch" id="btnToggleSubCaptions">
+                        <div class="desktop-switch-thumb"></div>
+                    </button>
+                </div>
+                <div class="settings-row" style="margin-top: 10px;">
+                    <div>
+                        <div class="settings-label-text">Remove Promotional Bloat</div>
+                        <div class="settings-sublabel">Strips website ads, encoder watermarks, and credits</div>
+                    </div>
+                    <button class="desktop-switch active" id="btnToggleSubBloat">
+                        <div class="desktop-switch-thumb"></div>
+                    </button>
+                </div>
+                <div class="settings-row" style="margin-top: 10px;">
+                    <div>
+                        <div class="settings-label-text">Uppercase All Subtitles</div>
+                        <div class="settings-sublabel">Converts dialogue into all-caps for maximum visibility</div>
+                    </div>
+                    <button class="desktop-switch" id="btnToggleSubUppercase">
+                        <div class="desktop-switch-thumb"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 2: Typography -->
             <div class="settings-card">
                 <div class="settings-card-title">Typography</div>
                 <div class="settings-row">
@@ -485,7 +507,7 @@
                 </div>
             </div>
 
-            <!-- Card 2: Outline & Shadow -->
+            <!-- Card 3: Border & Shadow -->
             <div class="settings-card">
                 <div class="settings-card-title">Border & Shadow</div>
                 <div class="settings-row">
@@ -535,7 +557,7 @@
                 </div>
             </div>
 
-            <!-- Card 3: Background & Placement -->
+            <!-- Card 4: Background & Placement -->
             <div class="settings-card">
                 <div class="settings-card-title">Background & Position</div>
                 <div class="settings-row">
@@ -639,6 +661,34 @@
 
         <!-- Tab 2: Video -->
         <div class="settings-tab-content" id="set-video">
+            <div class="settings-card">
+                <div class="settings-card-title">
+                    <span>Aspect Ratio & Zoom</span>
+                    <button id="btnResetVideo" class="desktop-reset-btn" style="width: auto; padding: 3px 8px; margin: 0; font-size: 10.5px;">Reset</button>
+                </div>
+                <div class="settings-row-col">
+                    <span class="settings-label-text">Aspect Ratio</span>
+                    <div class="chip-row" id="aspectChips" style="margin-top: 4px;">
+                        <div class="chip active" data-aspect="original">Original</div>
+                        <div class="chip" data-aspect="16:9">16:9</div>
+                        <div class="chip" data-aspect="4:3">4:3</div>
+                        <div class="chip" data-aspect="stretch">Stretch</div>
+                    </div>
+                </div>
+                <div class="settings-row" style="margin-top: 14px;">
+                    <div>
+                        <div class="settings-label-text">Video Zoom</div>
+                        <div class="settings-sublabel">Scale video frame up to 3x</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="zoomVal" class="settings-val-badge">0</span>
+                        <div class="desktop-slider-container" style="max-width: 140px; width: 140px;">
+                            <input type="range" class="desktop-slider" id="zoomSlider" min="0" max="3" step="0.25" value="0">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="settings-card">
                 <div class="settings-card-title">Video Quality & Rendering</div>
                 <div class="settings-row-col">
@@ -748,38 +798,6 @@
     </div>
 </div>
 
-<!-- ── Aspect Ratio Panel ──────────────────────────────────────────────── -->
-<div id="aspectPanel" class="panel">
-    <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 10px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-            <h2>Video Aspect & Zoom</h2>
-            <button class="close-btn" id="closeAspectBtn">✕</button>
-        </div>
-    </div>
-    <div class="panel-body">
-        <div class="settings-section" style="border-bottom: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <div class="settings-label" style="margin-bottom: 0;">Aspect Ratio</div>
-                <button id="btnResetVideo" style="background: rgba(255,255,255,0.08); border: none; color: white; border-radius: 4px; padding: 4px 10px; font-size: 10px; font-weight: bold; cursor: pointer; transition: background 0.15s;">RESET ALL</button>
-            </div>
-            <div class="chip-row" id="aspectChips">
-                <div class="chip active" data-aspect="original">Original</div>
-                <div class="chip" data-aspect="16:9">16:9</div>
-                <div class="chip" data-aspect="4:3">4:3</div>
-                <div class="chip" data-aspect="stretch">Stretch</div>
-            </div>
-            <div class="style-row" style="margin-top: 16px;">
-                <span>Video Zoom</span>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span id="zoomVal" style="font-size: 11px; font-variant-numeric: tabular-nums; opacity: 0.7; min-width: 20px; text-align: right;">0</span>
-                    <div class="desktop-slider-container" style="max-width: 160px; width: 160px;">
-                        <input type="range" class="desktop-slider" id="zoomSlider" min="0" max="3" step="0.25" value="0">
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 <!-- ── Playback Speed Popover (Simple & Compact) ─────────────────────── -->
 <div id="speedPanel" class="panel speed-compact-popover">
     <div class="speed-compact-header">
@@ -816,8 +834,11 @@
 <div id="statsOverlay">
     <div class="stats-panel">
         <div class="stats-header">
-            <span class="stats-header-title">Stats for nerds</span>
-            <span class="stats-badge" id="statsBadgeFps">-- fps</span>
+            <div class="stats-header-left">
+                <span class="stats-header-title">Stats for nerds</span>
+                <span class="stats-badge" id="statsBadgeFps">-- fps</span>
+            </div>
+            <button id="statsCloseBtn" class="stats-close-btn" title="Close Stats" onclick="toggleStats(false);">✕</button>
         </div>
         <div class="stats-grid">
             <div class="stats-key">Video ID / sCPN</div><div class="stats-val" id="sVideoId">--</div>
@@ -863,6 +884,7 @@
     <!-- Action Feedback Overlay -->
     <div id="actionFeedback" class="action-feedback">
         <div class="action-icon-wrap" id="actionFeedbackIcon"></div>
+        <div class="action-feedback-text" id="actionFeedbackText" style="display: none;"></div>
     </div>
 
     <!-- Volume OSD Overlay (Smooth Dynamic Bar) -->
@@ -940,14 +962,30 @@
                     </span>
                     <span class="capsule-title">Audio &amp; Subtitles</span>
                 </button>
-                <button id="nextEpBtn" class="ctrl-capsule-btn hidden" title="Next Episode">
-                    <span class="capsule-icon">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                        </svg>
-                    </span>
-                    <span class="capsule-title">Next Episode</span>
-                </button>
+                <div class="next-ep-btn-wrapper" id="nextEpBtnWrapper">
+                    <button id="nextEpBtn" class="ctrl-capsule-btn hidden" title="Next Episode">
+                        <span class="capsule-icon">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                            </svg>
+                        </span>
+                        <span class="capsule-title">Next Episode</span>
+                    </button>
+                    <!-- Floating Next Episode Hover Preview Card -->
+                    <div id="nextEpPreviewCard" class="next-ep-preview-card">
+                        <div class="next-ep-preview-thumb-wrap">
+                            <img id="nextEpPreviewThumb" class="next-ep-preview-thumb" src="" alt="">
+                            <div class="next-ep-preview-play-icon">
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                            </div>
+                        </div>
+                        <div class="next-ep-preview-info">
+                            <div id="nextEpPreviewTitle" class="next-ep-preview-title">Next Episode</div>
+                            <div id="nextEpPreviewMeta" class="next-ep-preview-meta">S1 E2</div>
+                            <div id="nextEpPreviewDesc" class="next-ep-preview-desc"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -972,6 +1010,7 @@
             <div class="seek-wrap" id="seekWrap">
                 <div class="seek-track"></div>
                 <div class="seek-buffer" id="seekBuffer"></div>
+                <div class="seek-hover" id="seekHover"></div>
                 <div class="seek-fill" id="seekFill"></div>
                 <div class="seek-chapters" id="seekChapters"></div>
                 <input type="range" id="seekBar" class="seek-slider" min="0" max="1000" value="0" step="0.1">
@@ -1330,56 +1369,42 @@
         <span class="ctx-badge">P</span>
     </div>
 
-    <div class="ctx-item" onclick="toggleAudioModeFromContext()">
+    <!-- More Tools Submenu -->
+    <div class="ctx-item ctx-parent" id="ctxItemTools">
         <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7a9 9 0 0 0-9-9z"/></svg>
-            <span>Audio Only Mode</span>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+            <span>More Tools</span>
         </div>
-        <span class="ctx-badge">A</span>
-    </div>
-
-    <div class="ctx-divider"></div>
-
-    <!-- Capture & Tools Tier -->
-    <div class="ctx-item" onclick="takeScreenshotFromContext()">
-        <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12m-3.2 0a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0 -6.4 0 M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
-            <span>Take Screenshot</span>
+        <span class="ctx-chevron">›</span>
+        <div class="ctx-submenu" id="ctxSubmenuTools">
+            <div class="ctx-sub-header">Tools & Capture</div>
+            <div class="ctx-sub-item" onclick="takeScreenshotFromContext()">
+                <span>Take Screenshot</span>
+                <span class="ctx-badge">S</span>
+            </div>
+            <div class="ctx-sub-item" onclick="copyCurrentTimecode()">
+                <span>Copy Timecode</span>
+                <span class="ctx-sub-check"></span>
+            </div>
+            <div class="ctx-sub-item" onclick="copyStreamUrlFromContext()">
+                <span>Copy Stream URL</span>
+                <span class="ctx-sub-check"></span>
+            </div>
+            <div class="ctx-divider"></div>
+            <div class="ctx-sub-header">Modes & Telemetry</div>
+            <div class="ctx-sub-item" onclick="toggleAudioModeFromContext()">
+                <span>Audio Only Mode</span>
+                <span class="ctx-badge">A</span>
+            </div>
+            <div class="ctx-sub-item" onclick="openPauseInfoModal()">
+                <span>Pause Info Settings...</span>
+                <span class="ctx-badge" id="ctxPauseInfoBadge">5s</span>
+            </div>
+            <div class="ctx-sub-item" onclick="closeContextMenu();toggleStatsForNerds()">
+                <span>Stats for Nerds</span>
+                <span class="ctx-badge">Shift+D</span>
+            </div>
         </div>
-        <span class="ctx-badge">S</span>
-    </div>
-
-    <div class="ctx-item" onclick="copyCurrentTimecode()">
-        <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-            <span>Copy Timecode</span>
-        </div>
-    </div>
-
-    <div class="ctx-item" onclick="copyStreamUrlFromContext()">
-        <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-            <span>Copy Stream URL</span>
-        </div>
-    </div>
-
-    <div class="ctx-divider"></div>
-
-    <!-- Diagnostics & Settings Tier -->
-    <div class="ctx-item" onclick="openPauseInfoModal()">
-        <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-            <span>Pause Info Settings...</span>
-        </div>
-        <span class="ctx-badge" id="ctxPauseInfoBadge">5s</span>
-    </div>
-
-    <div class="ctx-item" onclick="closeContextMenu();toggleStatsForNerds()">
-        <div class="ctx-item-left">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
-            <span>Stats for Nerds</span>
-        </div>
-        <span class="ctx-badge">Shift+D</span>
     </div>
 
     <div class="ctx-item" onclick="openSettingsFromContext()">

@@ -504,6 +504,34 @@ object LocalStreamProxy {
                 }
             }
 
+            // --- LOCAL FILE INTERCEPTION ---
+            // If the URL is actually a local file path (e.g. C:\... or /home/...), read and serve it directly, bypassing OkHttp.
+            val isLocalFilePath = url.length >= 2 && (
+                (url[1] == ':' && url[2] == '\\') || // Windows: C:\...
+                (url[1] == ':' && url[2] == '/') ||  // Windows: C:/...
+                url.startsWith("/")                  // Unix: /...
+            )
+            if (isLocalFilePath) {
+                val file = java.io.File(url)
+                if (!file.exists() || !file.isFile) {
+                    call.respond(HttpStatusCode.NotFound)
+                    return
+                }
+                val ext = file.extension.lowercase()
+                val contentType = when (ext) {
+                    "srt" -> io.ktor.http.ContentType.parse("text/plain; charset=utf-8")
+                    "vtt" -> io.ktor.http.ContentType.parse("text/vtt; charset=utf-8")
+                    "ass", "ssa" -> io.ktor.http.ContentType.parse("text/plain; charset=utf-8")
+                    else -> io.ktor.http.ContentType.Application.OctetStream
+                }
+                val bytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    file.readBytes()
+                }
+                call.respondBytes(bytes, contentType, HttpStatusCode.OK)
+                return
+            }
+            // --------------------------------
+
             val mergedHeaders = session.headers.toMutableMap()
 
             val keysToRemove = mergedHeaders.keys.filter {

@@ -74,11 +74,30 @@ class DesktopHomeViewModel(
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            uiState.map { it.activeProviders }.distinctUntilChanged().collect { names ->
-                val disabledMap = names.associateWith { name ->
-                    DesktopDataStore.getKey<Set<String>>(PreferenceKeys.disabledCatalogsKey(name)) ?: emptySet()
+            uiState.map { it.providers }.distinctUntilChanged().collect { apis ->
+                val disabledMap = mutableMapOf<String, Set<String>>()
+                val orderedMap = mutableMapOf<String, List<String>>()
+                for (api in apis) {
+                    val keyName = PreferenceKeys.disabledCatalogsKey(api.name)
+                    val provKey = com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.getProviderKey(api)
+                    val keyProv = PreferenceKeys.disabledCatalogsKey(provKey)
+                    val disabled = DesktopDataStore.getKey<Set<String>>(keyName)
+                        ?: DesktopDataStore.getKey<Set<String>>(keyProv)
+                        ?: emptySet()
+                    disabledMap[api.name] = disabled
+                    disabledMap[provKey] = disabled
+
+                    val orderKeyName = PreferenceKeys.orderedCatalogsKey(api.name)
+                    val orderKeyProv = PreferenceKeys.orderedCatalogsKey(provKey)
+                    val ordered = DesktopDataStore.getKey<List<String>>(orderKeyName)
+                        ?: DesktopDataStore.getKey<List<String>>(orderKeyProv)
+                        ?: emptyList()
+                    if (ordered.isNotEmpty()) {
+                        orderedMap[api.name] = ordered
+                        orderedMap[provKey] = ordered
+                    }
                 }
-                updateState { copy(disabledCatalogs = disabledMap) }
+                updateState { copy(disabledCatalogs = disabledMap, orderedCatalogs = orderedMap) }
             }
         }
 
@@ -136,11 +155,66 @@ class DesktopHomeViewModel(
                 } else {
                     currentDisabled + event.catalogName
                 }
-                updateState {
-                    copy(disabledCatalogs = disabledCatalogs + (event.providerName to newDisabled))
+                val matchingApi = uiState.value.activeProviderApis.firstOrNull { it.name == event.providerName }
+                val provKey = matchingApi?.let { com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.getProviderKey(it) }
+
+                val updatedMap = uiState.value.disabledCatalogs.toMutableMap()
+                updatedMap[event.providerName] = newDisabled
+                if (provKey != null) {
+                    updatedMap[provKey] = newDisabled
                 }
+
+                updateState { copy(disabledCatalogs = updatedMap) }
                 viewModelScope.launch(Dispatchers.IO) {
                     DesktopDataStore.setKey(PreferenceKeys.disabledCatalogsKey(event.providerName), newDisabled)
+                    if (provKey != null) {
+                        DesktopDataStore.setKey(PreferenceKeys.disabledCatalogsKey(provKey), newDisabled)
+                    }
+                }
+            }
+            is HomeUiEvent.OnMoveCatalog -> {
+                val matchingApi = uiState.value.providers.firstOrNull { it.name == event.providerName }
+                    ?: uiState.value.activeProviderApis.firstOrNull { it.name == event.providerName }
+                val defaultList = matchingApi?.mainPage?.map { it.name } ?: emptyList()
+                val currentOrdered = (uiState.value.orderedCatalogs[event.providerName] ?: defaultList).toMutableList()
+
+                if (event.fromIndex in currentOrdered.indices && event.toIndex in currentOrdered.indices) {
+                    val item = currentOrdered.removeAt(event.fromIndex)
+                    currentOrdered.add(event.toIndex, item)
+
+                    val provKey = matchingApi?.let { com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.getProviderKey(it) }
+                    val updatedOrderedMap = uiState.value.orderedCatalogs.toMutableMap()
+                    updatedOrderedMap[event.providerName] = currentOrdered
+                    if (provKey != null) {
+                        updatedOrderedMap[provKey] = currentOrdered
+                    }
+                    updateState { copy(orderedCatalogs = updatedOrderedMap) }
+
+                    viewModelScope.launch(Dispatchers.IO) {
+                        DesktopDataStore.setKey(PreferenceKeys.orderedCatalogsKey(event.providerName), currentOrdered)
+                        if (provKey != null) {
+                            DesktopDataStore.setKey(PreferenceKeys.orderedCatalogsKey(provKey), currentOrdered)
+                        }
+                    }
+                }
+            }
+            is HomeUiEvent.OnResetCatalogOrder -> {
+                val matchingApi = uiState.value.providers.firstOrNull { it.name == event.providerName }
+                    ?: uiState.value.activeProviderApis.firstOrNull { it.name == event.providerName }
+                val provKey = matchingApi?.let { com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.getProviderKey(it) }
+
+                val updatedOrderedMap = uiState.value.orderedCatalogs.toMutableMap()
+                updatedOrderedMap.remove(event.providerName)
+                if (provKey != null) {
+                    updatedOrderedMap.remove(provKey)
+                }
+                updateState { copy(orderedCatalogs = updatedOrderedMap) }
+
+                viewModelScope.launch(Dispatchers.IO) {
+                    DesktopDataStore.removeKey(PreferenceKeys.orderedCatalogsKey(event.providerName))
+                    if (provKey != null) {
+                        DesktopDataStore.removeKey(PreferenceKeys.orderedCatalogsKey(provKey))
+                    }
                 }
             }
             is HomeUiEvent.OnLoadCategory -> {

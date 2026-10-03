@@ -20,5 +20,8 @@ open class RecyclerView : ViewGroup {
     }
 
     var adapter: Adapter<*>? = null
-        set(value) { field = value; ShadowUi.bump() }
+        set(value) {
+            field = value
+            ShadowUi.bump()
+        }
 }

@@ -68,12 +68,13 @@ class EmbeddedPlayerViewModel(
                 if (kotlin.math.abs(currentPosSec - lastSavedPositionSec) >= 5) {
                     lastSavedPositionSec = currentPosSec
                     if (currentData != null) {
+                        val pct = if (durSec > 0) currentPosSec.toFloat() / durSec.toFloat() else 0f
                         val updatedHistory = currentData.history.copy(
-                            position = currentPosSec,
+                            position = if (pct >= 0.90f && durSec > 0) durSec else currentPosSec,
                             duration = durSec,
                             updateTime = System.currentTimeMillis(),
                         )
-                        savePosition(updatedHistory)
+                        savePosition(updatedHistory, forceNotify = pct >= 0.90f)
                     }
                 }
 
@@ -106,9 +107,10 @@ class EmbeddedPlayerViewModel(
                     val currentPosSec = playerState.positionMs.value / 1000L
                     val durSec = playerState.durationMs.value / 1000L
                     if (currentPosSec > 0 && durSec > 0) {
+                        val pct = currentPosSec.toFloat() / durSec.toFloat()
                         savePosition(
                             currentData.history.copy(
-                                position = currentPosSec,
+                                position = if (pct >= 0.90f) durSec else currentPosSec,
                                 duration = durSec,
                                 updateTime = System.currentTimeMillis(),
                             ),
@@ -235,7 +237,10 @@ class EmbeddedPlayerViewModel(
         failed: Set<String>,
         startPositionMs: Long = 0L,
     ): ExtractorLink? {
-        val available = links.filter { it.url !in failed }
+        val p2pReady = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isP2pReady
+        val available = links.filter { link ->
+            link.url !in failed && (p2pReady || !com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isTorrentLink(link))
+        }
         if (available.isEmpty()) return null
         return sortLinks(available, startPositionMs).firstOrNull()
     }
@@ -255,9 +260,10 @@ class EmbeddedPlayerViewModel(
                 val timeoutStr = DesktopDataStore.getKey<String>(PlayerConfig.PREF_AUTO_PLAY_TIMEOUT) ?: "20000"
                 val baseTimeoutMs = timeoutStr.toLongOrNull() ?: 20_000L
                 val isP2p = com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.isTorrentLink(phase.link) || phase.link.url.contains("127.0.0.1:8091")
+                val isLocalLoopback = phase.link.url.contains("127.0.0.1") || phase.link.url.contains("localhost")
                 val timeoutMs = when {
                     phase.isRetry -> 3_500L
-                    isP2p -> 35_000L
+                    isP2p || isLocalLoopback -> 45_000L
                     else -> baseTimeoutMs
                 }
                 timeoutJob = viewModelScope.launch {
@@ -308,6 +314,7 @@ class EmbeddedPlayerViewModel(
 
     private fun handlePlaybackFinished() {
         timeoutJob?.cancel()
+        flushCurrentEpisodeProgress(markCompletedIfNearEnd = true)
         // Re-read the pref fresh so a mid-session toggle takes effect immediately.
         val autoPlay = DesktopDataStore.getKey<Boolean>(PlayerConfig.PREF_AUTO_PLAY) ?: true
         val state = uiState.value
@@ -357,6 +364,9 @@ class EmbeddedPlayerViewModel(
         return r.contains("unsupported stream format") ||
             r.contains("format unsupported") ||
             r.contains("no audio/video") ||
+            r.contains("torrent stream error") ||
+            r.contains("p2p torrent streaming is disabled") ||
+            r.contains("torrserver engine is not installed") ||
             r.contains("400") ||
             r.contains("401") ||
             r.contains("403") ||
@@ -472,7 +482,6 @@ class EmbeddedPlayerViewModel(
                 }
                 appendLine("Generated At: ${java.time.Instant.now()}")
             }
-            updateState { copy(failedLinks = newFailed) }
             updatePhase(
                 PlayerPhase.Exhausted(
                     reason = "All $totalCandidates sources failed ($reason)",
@@ -520,6 +529,37 @@ class EmbeddedPlayerViewModel(
                 nextEpisode = uiState.value.nextEpisodeData,
                 saveProgress = savePlaybackProgress,
                 forceNotify = forceNotify,
+            )
+        }
+    }
+
+    private fun flushCurrentEpisodeProgress(markCompletedIfNearEnd: Boolean = false) {
+        val currentData = uiState.value.launchData ?: return
+        val currentDurSec = playerState.durationMs.value / 1000L
+        val currentPosSec = playerState.positionMs.value / 1000L
+        if (currentDurSec <= 0 && currentData.history.duration <= 0) return
+
+        val durSec = if (currentDurSec > 0) currentDurSec else currentData.history.duration
+        val posSec = if (currentPosSec > 0) currentPosSec else currentData.history.position
+
+        val pct = if (durSec > 0) posSec.toFloat() / durSec.toFloat() else 0f
+        val shouldMarkCompleted = markCompletedIfNearEnd || pct >= 0.90f
+        val finalPosSec = if (shouldMarkCompleted && durSec > 0) durSec else posSec
+
+        val updatedHistory = currentData.history.copy(
+            position = finalPosSec,
+            duration = durSec,
+            updateTime = System.currentTimeMillis(),
+        )
+
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch(Dispatchers.IO) {
+            WatchHistoryCoordinator.saveWithNextEpisodeQueue(
+                history = updatedHistory,
+                hasNextEpisode = uiState.value.hasNextEpisode,
+                nextEpisode = uiState.value.nextEpisodeData,
+                saveProgress = savePlaybackProgress,
+                forceNotify = true,
             )
         }
     }
@@ -706,6 +746,8 @@ class EmbeddedPlayerViewModel(
                 return
             }
         }
+
+        flushCurrentEpisodeProgress()
 
         countdownJob?.cancel()
         loadLinksJob?.cancel()
@@ -1262,7 +1304,7 @@ class EmbeddedPlayerViewModel(
                         }
                     }
                 },
-                onSeekableConfirmed = {
+                onSeekabilityProbed = { _, _ ->
                     updateState {
                         if (!isScrapingLinks) return@updateState this
                         val reSorted = sortLinks(nextEpisodeLinks, startPos)

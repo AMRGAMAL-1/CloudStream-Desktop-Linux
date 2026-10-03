@@ -192,8 +192,8 @@ fun LinksSidePanel(
         list
     }
 
-    val filteredLinks = remember(links, selectedQuality, selectedFormat, selectedSource) {
-        links.filter { link ->
+    val filteredLinks = remember(links, selectedQuality, selectedFormat, selectedSource, isP2pEnabled) {
+        val base = links.filter { link ->
             val linkSrc = link.source.trim().ifBlank { provider.name }
             val sourceMatches = selectedSource == null || linkSrc.equals(selectedSource, ignoreCase = true)
 
@@ -212,6 +212,11 @@ fun LinksSidePanel(
                 StreamFormatFilter.TORRENT -> isTorrent
             }
             sourceMatches && qualityMatches && formatMatches
+        }
+        if (!DesktopTorrentEngine.isP2pReady && selectedFormat == StreamFormatFilter.ALL) {
+            base.sortedBy { DesktopTorrentEngine.isTorrentLink(it) }
+        } else {
+            base
         }
     }
 

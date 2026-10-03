@@ -493,6 +493,23 @@ class PlayerState {
         }
     }
 
+    fun setSubFilterBloat(enabled: Boolean) {
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_REMOVE_BLOAT, enabled)
+        }
+        if (enabled) {
+            engine?.setPropertyString("sub-filter-regex", com.lagradost.cloudstream3.desktop.player.PlayerConfig.SUB_FILTER_BLOAT_REGEX)
+        } else {
+            engine?.setPropertyString("sub-filter-regex", "")
+        }
+    }
+
+    fun setSubUppercase(enabled: Boolean) {
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_SUB_UPPERCASE, enabled)
+        }
+    }
+
     fun setSubtitleTrack(id: Int?) {
         hasUserManuallyChangedSub = true
         com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {

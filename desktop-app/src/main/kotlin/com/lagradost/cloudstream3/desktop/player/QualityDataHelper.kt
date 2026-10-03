@@ -251,6 +251,26 @@ object QualityDataHelper {
         }
     }
 
+    fun getSeekabilityRank(link: ExtractorLink): Int {
+        if (link.isM3u8 || link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.M3U8 ||
+            link.isDash || link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.DASH) {
+            return 2
+        }
+        val url = link.url.trim()
+        val cached = seekabilityCache[url]
+        if (cached != null) {
+            return if (cached) 2 else 0
+        }
+        val urlLower = url.lowercase(java.util.Locale.US)
+        if (urlLower.contains(".m3u8") || urlLower.contains(".mpd") || link.extractorData == "yt-dlp") {
+            return 2
+        }
+        if (link.name.contains("download only", ignoreCase = true) || urlLower.contains("download-only")) {
+            return 0
+        }
+        return 1
+    }
+
     fun getLinkScore(link: ExtractorLink): Int {
         val effectiveQual = extractEffectiveQuality(link)
         val preferredQual = DesktopDataStore.getKey<String>(PlayerConfig.PREF_PREFERRED_QUALITY) ?: "Auto"
@@ -259,30 +279,12 @@ object QualityDataHelper {
         val srcPriority = getSourcePriority(link.source)
         val isHd = if (effectiveQual >= Qualities.P720.value) 1000 else 0
         val degradedPenalty = if (isDegradedStream(link)) -2000 else 0
-        return isHd + (langTier * 200) + qualRank + srcPriority + degradedPenalty
+        val nonSeekablePenalty = if (getSeekabilityRank(link) == 0) -5000 else 0
+        return isHd + (langTier * 200) + qualRank + srcPriority + degradedPenalty + nonSeekablePenalty
     }
 
     fun isSeekableLink(link: ExtractorLink): Boolean {
-        if (link.isM3u8 || link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.M3U8 ||
-            link.isDash || link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.DASH) {
-            return true
-        }
-        val url = link.url.trim()
-        val cached = seekabilityCache[url]
-        if (cached != null) {
-            return cached
-        }
-        val urlLower = url.lowercase(java.util.Locale.US)
-        if (urlLower.contains(".m3u8") || urlLower.contains(".mpd")) return true
-
-        if (link.name.contains("download only", ignoreCase = true) || urlLower.contains("download-only")) {
-            return false
-        }
-
-        // Direct streams (MP4/MKV) and desktop player links are seekable by default unless probe explicitly failed
-        return link.type == com.lagradost.cloudstream3.utils.ExtractorLinkType.VIDEO ||
-            urlLower.endsWith(".mp4") || urlLower.endsWith(".mkv") || urlLower.contains(".mp4?") || urlLower.contains(".mkv?") ||
-            link.extractorData == "yt-dlp" || !urlLower.contains("live")
+        return getSeekabilityRank(link) > 0
     }
 
     suspend fun probeRangeSeekability(link: ExtractorLink): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -373,8 +375,8 @@ object QualityDataHelper {
     fun sortLinks(links: List<ExtractorLink>): List<ExtractorLink> {
         val preferredQuality = DesktopDataStore.getKey<String>(PlayerConfig.PREF_PREFERRED_QUALITY) ?: "Auto"
         return links.sortedWith(
-            // Tier 1: Seekability (must not freeze or fail on scrubbing)
-            compareByDescending<ExtractorLink> { if (isSeekableLink(it)) 1 else 0 }
+            // Tier 1: Seekability (confirmed seekable [2] > pending [1] > confirmed non-seekable [0])
+            compareByDescending<ExtractorLink> { getSeekabilityRank(it) }
                 // Tier 2: Non-preferred foreign language filter (Direct/Multi/Neutral [1..3] strictly prioritized over other language [0])
                 .thenByDescending { if (getLanguageMatchTier(it) > 0) 1 else 0 }
                 // Tier 3: Clean stream priority over degraded/cam/sample streams

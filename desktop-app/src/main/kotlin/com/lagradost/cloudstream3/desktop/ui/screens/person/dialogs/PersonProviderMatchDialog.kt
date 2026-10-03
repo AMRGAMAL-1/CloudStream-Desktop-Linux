@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -320,7 +321,7 @@ internal fun PersonProviderMatchDialog(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(matches, key = { "${it.providerName}-${it.searchResponse.url}" }) { match ->
+                            itemsIndexed(matches, key = { index, it -> "${it.providerName}-${it.searchResponse.url}-$index" }) { _, match ->
                                 PersonProviderMatchRow(
                                     match = match,
                                     onClick = {

@@ -21,7 +21,7 @@ object RepositoryManager {
             syncMutex.withLock {
                 syncJob?.cancel()
                 syncJob = appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    kotlinx.coroutines.delay(600) // Debounce batch repository additions
+                    kotlinx.coroutines.delay(3500) // Debounce batch repository additions
                     AppLogger.i("RepositoryManager Stub: Triggering debounced catalog sync for newly added repositories...")
                     try {
                         DesktopRepositoryManager.rebuildRemotePluginCatalog()
@@ -41,13 +41,48 @@ object RepositoryManager {
         AppLogger.i("RepositoryManager Stub: Intercepted addRepository for ${normalized.name}")
         // Execute the actual write on a separate thread to escape the plugin's SecurityManager context
         appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            DesktopRepositoryManager.saveRepository(normalized)
-            scheduleCatalogSync()
+            val isNew = DesktopRepositoryManager.saveRepository(normalized)
+            if (isNew) {
+                AppLogger.i("RepositoryManager Stub: Newly added repository detected (${normalized.name}). Scheduling sync...")
+                scheduleCatalogSync()
+            }
         }.join()
     }
 
     suspend fun parseRepository(url: String): Repository? {
         AppLogger.i("RepositoryManager Stub: parseRepository called for $url")
+        // Check cache / saved repository first to avoid blocking boot with remote network requests
+        val cached = DesktopRepositoryManager.getRepositoryManifest(url)
+        if (cached != null) {
+            val lists = if (cached.pluginLists.isNullOrEmpty()) {
+                listOf(DesktopRepositoryManager.getPluginsJsonUrl(url))
+            } else {
+                cached.pluginLists
+            }
+            return Repository(
+                iconUrl = cached.iconUrl,
+                name = cached.name,
+                description = cached.description,
+                manifestVersion = cached.manifestVersion,
+                pluginLists = lists,
+            ).also {
+                AppLogger.i("RepositoryManager Stub: successfully parsed ${it.name} (from local cache with ${lists.size} lists)")
+            }
+        }
+        val saved = DesktopRepositoryManager.getSavedRepositories().firstOrNull { it.url == url }
+        if (saved != null) {
+            val listUrl = DesktopRepositoryManager.getPluginsJsonUrl(saved.url)
+            return Repository(
+                iconUrl = saved.iconUrl,
+                name = saved.name,
+                description = null,
+                manifestVersion = 1,
+                pluginLists = listOf(listUrl),
+            ).also {
+                AppLogger.i("RepositoryManager Stub: successfully parsed ${it.name} (from saved repos with list: $listUrl)")
+            }
+        }
+
         val repo = com.lagradost.cloudstream3.desktop.repo.PluginNetworkClient.fetchRepository(url) ?: return null
         return Repository(
             iconUrl = repo.iconUrl,

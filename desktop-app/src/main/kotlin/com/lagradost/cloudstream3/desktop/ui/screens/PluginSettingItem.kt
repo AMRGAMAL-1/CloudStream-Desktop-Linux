@@ -38,7 +38,7 @@ fun PluginSettingItem(
             .padding(16.dp),
     ) {
         val options = schema.options
-        if (options != null && options.isNotEmpty()) {
+        if (options != null && options.isNotEmpty() && schema.type != "StringSet") {
             val currentValueStr = currentValue?.toString() ?: schema.defaultValue?.toString() ?: options.values.firstOrNull() ?: ""
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
@@ -207,7 +207,8 @@ fun PluginSettingItem(
                             ?: (currentValue as? List<*>)?.map { it.toString() }?.toSet()
                         val resolvedSet = currentSet ?: defaultSet
 
-                        val optionsList = memorySources.takeIf { it.isNotEmpty() }
+                        val optionsList = schema.options?.keys?.toList()?.sorted()
+                            ?: memorySources.takeIf { it.isNotEmpty() }
                             ?: (defaultSet + (currentSet ?: emptySet())).toList().sorted()
 
                         if (optionsList.isNotEmpty()) {
@@ -218,7 +219,10 @@ fun PluginSettingItem(
                             val filteredOptions = if (searchQuery.isBlank()) {
                                 optionsList
                             } else {
-                                optionsList.filter { it.contains(searchQuery, ignoreCase = true) }
+                                optionsList.filter { opt ->
+                                    val label = schema.options?.get(opt) ?: opt
+                                    opt.contains(searchQuery, ignoreCase = true) || label.contains(searchQuery, ignoreCase = true)
+                                }
                             }
 
                             Column(
@@ -288,8 +292,9 @@ fun PluginSettingItem(
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
+                                        val labelText = schema.options?.get(option) ?: option
                                         Text(
-                                            text = option,
+                                            text = labelText,
                                             modifier = Modifier.weight(1f),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Medium,

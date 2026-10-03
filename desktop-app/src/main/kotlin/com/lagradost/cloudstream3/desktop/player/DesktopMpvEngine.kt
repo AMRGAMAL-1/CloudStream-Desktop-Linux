@@ -794,6 +794,18 @@ class DesktopMpvEngine(
         }
     }
 
+    fun stop() {
+        val handle = mpvHandle ?: return
+        if (isDestroyed.get()) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                MpvLibrary.INSTANCE.mpv_command_string(handle, "stop")
+            } catch (e: Throwable) {
+                AppLogger.w("DesktopMpvEngine", "Error stopping MPV: ${e.message}")
+            }
+        }
+    }
+
     fun setSpeed(newSpeed: Double) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return

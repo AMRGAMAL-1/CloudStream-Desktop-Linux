@@ -158,7 +158,7 @@ class PersonViewModel : BaseMviViewModel<PersonUiState, PersonUiEvent, PersonUiE
                                             )
                                         }
                                     }
-                                    updateState { copy(providerMatches = aggregatedMatches.toList()) }
+                                    updateState { copy(providerMatches = aggregatedMatches.distinctBy { "${it.providerName}-${it.searchResponse.url}" }) }
                                 }
                             } catch (_: Exception) {
                                 // Ignored per provider failure
@@ -170,7 +170,7 @@ class PersonViewModel : BaseMviViewModel<PersonUiState, PersonUiEvent, PersonUiE
                 jobs.joinAll()
                 updateState {
                     copy(
-                        providerMatches = aggregatedMatches.toList(),
+                        providerMatches = aggregatedMatches.distinctBy { "${it.providerName}-${it.searchResponse.url}" },
                         isSearchingProviders = false,
                     )
                 }

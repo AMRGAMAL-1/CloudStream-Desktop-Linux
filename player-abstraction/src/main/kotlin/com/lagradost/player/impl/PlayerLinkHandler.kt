@@ -13,7 +13,7 @@ import java.io.File
 object PlayerLinkHandler {
 
     const val MIN_DURATION_TO_SAVE_SECONDS = 30L
-    const val RESUME_RESET_PERCENT = 95L
+    const val RESUME_RESET_PERCENT = 90L
     const val RESUME_MIN_PERCENT = 1L
 
     data class ValidatedLink(
@@ -128,7 +128,10 @@ object PlayerLinkHandler {
             val provider = com.lagradost.cloudstream3.APIHolder.getApiFromNameNull(link.source)
             val videoInterceptor = try {
                 provider?.getVideoInterceptor(link)
-            } catch (_: Throwable) { null }
+            } catch (t: Throwable) {
+                com.lagradost.common.logging.AppLogger.w("PlayerLinkHandler: Failed to resolve videoInterceptor for provider '${link.source}': ${t.message}")
+                null
+            }
             val finalSessionId = if (useProxy) {
                 com.lagradost.player.impl.proxy.LocalStreamProxy.registerSession(headers, videoInterceptor)
             } else null

@@ -1,12 +1,10 @@
 package com.lagradost.cloudstream3.desktop.ui.screens.settings
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,116 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.lagradost.cloudstream3.desktop.ui.screens.settings.contract.SettingsUiEvent
+import com.lagradost.cloudstream3.desktop.ui.screens.dev.DevStudioState
 
 @Composable
 fun SettingsDeveloper(
     viewModel: SettingsViewModel,
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-
-    if (!uiState.isDevModeEnabled) {
-        var passwordInput by remember { mutableStateOf("") }
-        var isPasswordVisible by remember { mutableStateOf(false) }
-
-        val handleUnlock = {
-            viewModel.onEvent(SettingsUiEvent.UnlockDeveloperMode(passwordInput))
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = null,
-                modifier = Modifier.size(60.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                text = "Developer Options are Locked",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Developer tools include live LogCat, Network Inspector, and Provider Diagnostics. Enter password to unlock.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 500.dp),
-            )
-            Spacer(Modifier.height(24.dp))
-
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(),
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = {
-                            passwordInput = it
-                        },
-                        label = { Text("Developer Password") },
-                        placeholder = { Text("Enter password...") },
-                        singleLine = true,
-                        isError = uiState.devModeError != null,
-                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        supportingText = {
-                            if (uiState.devModeError != null) {
-                                Text(uiState.devModeError ?: "", color = MaterialTheme.colorScheme.error)
-                            } else {
-                                Text(
-                                    "Hint: If you don't know what monke eats, you can't be trusted with live LogCat",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { handleUnlock() }),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                    )
-
-                    Button(
-                        onClick = handleUnlock,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                    ) {
-                        Icon(Icons.Default.LockOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Unlock Developer Mode", fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-        return
-    }
-
     var selectedTabIndex by remember { mutableStateOf(0) }
 
     data class TabData(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
@@ -156,7 +51,7 @@ fun SettingsDeveloper(
                     )
                     Column {
                         Text(
-                            text = "Developer Mode Active",
+                            text = "Developer Mode & Diagnostics",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -169,9 +64,11 @@ fun SettingsDeveloper(
                     }
                 }
                 TextButton(
-                    onClick = { viewModel.onEvent(SettingsUiEvent.SetDeveloperMode(false)) },
+                    onClick = { DevStudioState.open() },
                 ) {
-                    Text("Turn Off", color = MaterialTheme.colorScheme.error)
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open Floating Window")
                 }
             }
         }

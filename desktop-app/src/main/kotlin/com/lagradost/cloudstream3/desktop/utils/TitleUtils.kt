@@ -79,6 +79,7 @@ object TitleUtils {
     // Catches: "(Season 1", " Season 2", "- Season 3", "(S01", "Part 2", "Cour 2", "The Final Season"
     private val SEASON_REGEX = Regex("""(?i)\s*[\(-]?\s*\b(season|series|episode|ep\.?|part|cour|arc)\s*\d+""")
     private val FINAL_SEASON_REGEX = Regex("""(?i)\s*[\(-]?\s*\b(the\s+final\s+season|final\s+season)\b""")
+    private val SHORT_SEASON_REGEX = Regex("""(?i)\s*[\(-]?\s*\bs\d{1,2}(?:-\d{1,2}|-s\d{1,2})?\b""")
 
     // Trailing punctuation / whitespace after slicing
     private val TRAILING_JUNK_REGEX = Regex("""[\s\-:(\[{|]+$""")
@@ -108,6 +109,9 @@ object TitleUtils {
                     if (pos > 0) add(pos)
                 }
                 FINAL_SEASON_REGEX.find(raw)?.range?.first?.let { pos ->
+                    if (pos > 0) add(pos)
+                }
+                SHORT_SEASON_REGEX.find(raw)?.range?.first?.let { pos ->
                     if (pos > 0) add(pos)
                 }
                 // Dash-space-digit pattern: " - 720p", " - 2026"

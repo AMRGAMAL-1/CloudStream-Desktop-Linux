@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerDiagnosticsHol
 import com.lagradost.common.logging.LogBuffer
 import com.lagradost.common.logging.LogLevel
 import com.lagradost.common.net.NetworkTrafficBuffer
+import com.lagradost.common.storage.DesktopDataStore
 import com.lagradost.runtime.executor.PluginCircuitBreaker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,11 +17,17 @@ import java.util.regex.Pattern
 class DevStudioViewModel : BaseMviViewModel<DevStudioUiState, DevStudioUiEvent, DevStudioUiEffect>(
     initialState = DevStudioUiState(),
 ) {
+    companion object {
+        private const val PREF_ADVANCED_MODE = "pref_dev_studio_advanced_mode"
+    }
+
     private var pendingLogRefreshJob: Job? = null
     private var pendingNetworkRefreshJob: Job? = null
     private var playerPollJob: Job? = null
 
     init {
+        val initialAdvanced = DesktopDataStore.getKey<Boolean>(PREF_ADVANCED_MODE) ?: false
+        updateState { copy(isAdvancedMode = initialAdvanced) }
         refreshLogsDirect()
         refreshNetworkDirect()
         listenToLiveLogs()
@@ -179,6 +186,19 @@ class DevStudioViewModel : BaseMviViewModel<DevStudioUiState, DevStudioUiEvent, 
 
     override fun handleEvent(event: DevStudioUiEvent) {
         when (event) {
+            is DevStudioUiEvent.ToggleAdvancedMode -> {
+                val newAdvanced = !uiState.value.isAdvancedMode
+                updateState { copy(isAdvancedMode = newAdvanced) }
+                viewModelScope.launch(Dispatchers.IO) {
+                    DesktopDataStore.setKey(PREF_ADVANCED_MODE, newAdvanced)
+                }
+            }
+            is DevStudioUiEvent.CopyAllLogs -> {
+                val allLogs = LogBuffer.getSnapshot()
+                val exportText = LogBuffer.exportLogsAsText(allLogs)
+                sendEffect(DevStudioUiEffect.CopyToClipboard(exportText, "Full Application Logs"))
+                sendEffect(DevStudioUiEffect.ShowToast("${allLogs.size} logs copied to clipboard!"))
+            }
             is DevStudioUiEvent.SwitchTab -> {
                 updateState { copy(currentTab = event.tab) }
                 if (event.tab == DevStudioTab.PLAYER) {

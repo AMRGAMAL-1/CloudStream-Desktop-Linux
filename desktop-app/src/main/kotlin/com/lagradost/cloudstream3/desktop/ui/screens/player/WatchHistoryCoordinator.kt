@@ -24,7 +24,13 @@ internal object WatchHistoryCoordinator {
         val currentPosSec = history.position
         val percentage = if (currentDurSec > 0) currentPosSec.toFloat() / currentDurSec else 0f
 
-        saveProgress.await(history, forceNotify = forceNotify)
+        val finalHistory = if (percentage >= 0.90f && currentDurSec > 0) {
+            history.copy(position = currentDurSec)
+        } else {
+            history
+        }
+
+        saveProgress.await(finalHistory, forceNotify = forceNotify)
 
         if (percentage >= 0.90f && hasNextEpisode && nextEpisode != null) {
             val existingNext = DesktopDataStore.getEpisodeWatched(

@@ -61,7 +61,7 @@ data class ExploreUiState(
     val isInitializing: Boolean = true,
     val allCatalogs: List<ManifestCatalogDescriptor> = emptyList(),
     val availableTypes: List<String> = emptyList(),
-    val selectedType: String = "movie",
+    val selectedType: String = "all",
     val filteredCatalogs: List<ManifestCatalogDescriptor> = emptyList(),
     val selectedCatalog: ManifestCatalogDescriptor? = null,
     val selectedGenre: String = "All",
@@ -77,6 +77,7 @@ data class ExploreUiState(
     val isSearchingProviders: Boolean = false,
     val watchHistoryMap: Map<String, WatchHistory> = emptyMap(),
     val isShelvesMode: Boolean = true,
+    val allShelves: List<ExploreShelf> = emptyList(),
     val shelves: List<ExploreShelf> = emptyList(),
     val heroItems: List<ExploreItem> = emptyList(),
     val isShelvesLoading: Boolean = false,
@@ -692,7 +693,7 @@ class ExploreViewModel(
 
             ExploreCatalogSettingsManager.syncWithDiscovered(discovered)
 
-            val types = discovered.map {
+            val discoveredTypes = discovered.map {
                 val t = it.type.lowercase(Locale.US)
                 if (t == "tv") "series" else t
             }.distinct().sortedBy {
@@ -704,9 +705,10 @@ class ExploreViewModel(
                     else -> 4
                 }
             }
+            val types = listOf("all") + discoveredTypes
 
             val currentType = uiState.value.selectedType
-            val targetType = if (types.contains(currentType)) currentType else types.firstOrNull() ?: "movie"
+            val targetType = if (types.contains(currentType)) currentType else "all"
 
             val addons = listOf("All Sources") + discovered.map { it.addonName }.filter { it.isNotBlank() }.distinct().sorted()
             val currentAddon = uiState.value.selectedAddon
@@ -731,6 +733,7 @@ class ExploreViewModel(
                         rawItems = emptyList(),
                         displayItems = emptyList(),
                         isLoading = false,
+                        allShelves = emptyList(),
                         shelves = emptyList(),
                         heroItems = emptyList(),
                         isShelvesLoading = false,
@@ -781,15 +784,30 @@ class ExploreViewModel(
                 drilledCatalog = null,
                 drilledPlatform = null,
                 platformShelves = emptyList(),
-                heroItems = emptyList(),
                 selectedCollection = null,
                 isCollectionLoading = false,
             )
         }
 
         if (uiState.value.isShelvesMode) {
-            val shelvesCatalogs = ExploreCatalogSettingsManager.filterAndSort(forType)
-            loadShelves(type, shelvesCatalogs)
+            val allLoaded = uiState.value.allShelves
+            if (allLoaded.isNotEmpty()) {
+                val filtered = if (type.equals("all", ignoreCase = true)) {
+                    allLoaded
+                } else {
+                    allLoaded.filter { matchesType(it.catalog.type, type) }
+                }
+                val heroes = filtered.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
+                updateState {
+                    copy(
+                        shelves = filtered,
+                        heroItems = if (heroes.isNotEmpty()) heroes else heroItems,
+                    )
+                }
+            } else {
+                val shelvesCatalogs = ExploreCatalogSettingsManager.filterAndSort(forType)
+                loadShelves(type, shelvesCatalogs)
+            }
         } else {
             loadCurrentCatalog()
         }
@@ -1197,89 +1215,119 @@ class ExploreViewModel(
         }
 
         val cachedHeroes = initialShelves.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
+        val activeType = uiState.value.selectedType
+        val filteredInitial = if (activeType.equals("all", ignoreCase = true)) {
+            initialShelves
+        } else {
+            initialShelves.filter { matchesType(it.catalog.type, activeType) }
+        }
 
         updateState {
             copy(
                 isInitializing = false,
                 isShelvesLoading = initialShelves.any { it.isLoading },
-                shelves = initialShelves,
+                allShelves = initialShelves,
+                shelves = filteredInitial,
                 heroItems = cachedHeroes,
             )
         }
 
         loadShelvesJob = viewModelScope.launch(Dispatchers.IO) {
             val updatedShelves = initialShelves.toMutableList()
+            val batchSize = 4
+            val chunks = catalogs.indices.chunked(batchSize)
 
-            val jobs = catalogs.mapIndexed { index, cat ->
-                launch {
-                    val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.queryParams}_${cat.genre ?: "all"}_0"
-                    val cached = catalogItemsCache[cacheKey]
-                    if (cached != null && cached.isNotEmpty()) {
-                        return@launch
-                    }
-
-                    shelfFetchSemaphore.withPermit {
-                        try {
-                            val items = fetchItemsForCatalog(
-                                cat = cat,
-                                genreArg = cat.genre,
-                                skip = 0,
-                            ).distinctBy { it.id }
-
-                            if (items.isNotEmpty()) {
-                                catalogItemsCache[cacheKey] = items
-                            }
-
+            for (chunk in chunks) {
+                if (!isActive) break
+                val jobs = chunk.map { index ->
+                    val cat = catalogs[index]
+                    launch {
+                        val cacheKey = "${cat.addonBaseUrl}_${cat.type}_${cat.id}_${cat.queryParams}_${cat.genre ?: "all"}_0"
+                        val cached = catalogItemsCache[cacheKey]
+                        if (cached != null && cached.isNotEmpty()) {
                             synchronized(updatedShelves) {
                                 updatedShelves[index] = ExploreShelf(
                                     catalog = cat,
-                                    items = items,
+                                    items = cached,
                                     isLoading = false,
                                 )
                             }
-                            updateState {
-                                val currentShelves = updatedShelves.toList()
-                                val heroes = if (heroItems.isEmpty()) {
-                                    currentShelves.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
-                                } else heroItems
-                                copy(
-                                    shelves = currentShelves,
-                                    heroItems = heroes,
-                                    isShelvesLoading = currentShelves.any { it.isLoading },
-                                )
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            AppLogger.e(TAG, "Failed loading shelf for ${cat.name}: ${e.message}")
-                            synchronized(updatedShelves) {
-                                updatedShelves[index] = ExploreShelf(
-                                    catalog = cat,
-                                    items = emptyList(),
-                                    isLoading = false,
-                                    error = e.message,
-                                )
-                            }
-                            updateState {
-                                val currentShelves = updatedShelves.toList()
-                                copy(
-                                    shelves = currentShelves,
-                                    isShelvesLoading = currentShelves.any { it.isLoading },
-                                )
+                            return@launch
+                        }
+
+                        shelfFetchSemaphore.withPermit {
+                            try {
+                                val items = fetchItemsForCatalog(
+                                    cat = cat,
+                                    genreArg = cat.genre,
+                                    skip = 0,
+                                ).distinctBy { it.id }
+
+                                if (items.isNotEmpty()) {
+                                    catalogItemsCache[cacheKey] = items
+                                }
+
+                                synchronized(updatedShelves) {
+                                    updatedShelves[index] = ExploreShelf(
+                                        catalog = cat,
+                                        items = items,
+                                        isLoading = false,
+                                    )
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                AppLogger.e(TAG, "Failed loading shelf for ${cat.name}: ${e.message}")
+                                synchronized(updatedShelves) {
+                                    updatedShelves[index] = ExploreShelf(
+                                        catalog = cat,
+                                        items = emptyList(),
+                                        isLoading = false,
+                                        error = e.message,
+                                    )
+                                }
                             }
                         }
                     }
                 }
+                jobs.joinAll()
+
+                val currentAll = synchronized(updatedShelves) { updatedShelves.toList() }
+                val currentType = uiState.value.selectedType
+                val currentFiltered = if (currentType.equals("all", ignoreCase = true)) {
+                    currentAll
+                } else {
+                    currentAll.filter { matchesType(it.catalog.type, currentType) }
+                }
+                val heroes = if (uiState.value.heroItems.isEmpty()) {
+                    currentAll.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
+                } else uiState.value.heroItems
+
+                updateState {
+                    copy(
+                        allShelves = currentAll,
+                        shelves = currentFiltered,
+                        heroItems = heroes,
+                        isShelvesLoading = currentAll.any { it.isLoading },
+                    )
+                }
             }
 
-            jobs.joinAll()
+            val finalAll = synchronized(updatedShelves) { updatedShelves.toList() }
+            val currentType = uiState.value.selectedType
+            val finalFiltered = if (currentType.equals("all", ignoreCase = true)) {
+                finalAll
+            } else {
+                finalAll.filter { matchesType(it.catalog.type, currentType) }
+            }
+            val heroes = if (uiState.value.heroItems.isEmpty()) {
+                finalAll.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
+            } else uiState.value.heroItems
+
             updateState {
-                val finalShelves = updatedShelves.toList()
-                val heroes = if (heroItems.isEmpty()) {
-                    finalShelves.firstOrNull { it.items.isNotEmpty() }?.items?.take(5) ?: emptyList()
-                } else heroItems
                 copy(
-                    shelves = finalShelves,
+                    allShelves = finalAll,
+                    shelves = finalFiltered,
                     heroItems = heroes,
                     isShelvesLoading = false,
                 )
@@ -1726,6 +1774,7 @@ class ExploreViewModel(
     }
 
     private fun matchesType(catalogType: String, targetType: String): Boolean {
+        if (targetType.equals("all", ignoreCase = true)) return true
         val normCat = if (catalogType.equals("tv", ignoreCase = true)) "series" else catalogType.lowercase(Locale.US)
         val normTarget = if (targetType.equals("tv", ignoreCase = true)) "series" else targetType.lowercase(Locale.US)
         return normCat == normTarget
@@ -1733,6 +1782,7 @@ class ExploreViewModel(
 
     fun formatTypeTitle(type: String): String {
         return when (type.lowercase(Locale.US)) {
+            "all" -> "All"
             "movie" -> "Movies"
             "series", "tv" -> "TV Shows"
             "anime" -> "Anime"

@@ -158,10 +158,11 @@ class StudioViewModel : BaseMviViewModel<StudioUiState, StudioUiEvent, StudioUiE
                                             )
                                         }
                                     }
-                                    updateState { copy(providerMatches = aggregatedMatches.toList()) }
+                                    updateState { copy(providerMatches = aggregatedMatches.distinctBy { "${it.providerName}-${it.searchResponse.url}" }) }
                                 }
-                            } catch (_: Exception) {
-                                // Ignored per provider failure
+                            } catch (e: Exception) {
+                                if (e is CancellationException) throw e
+                                AppLogger.d("StudioViewModel", "Provider '${provider.name}' search failed for '$searchTitle': ${e.message}")
                             }
                         }
                     }
@@ -170,7 +171,7 @@ class StudioViewModel : BaseMviViewModel<StudioUiState, StudioUiEvent, StudioUiE
                 jobs.joinAll()
                 updateState {
                     copy(
-                        providerMatches = aggregatedMatches.toList(),
+                        providerMatches = aggregatedMatches.distinctBy { "${it.providerName}-${it.searchResponse.url}" },
                         isSearchingProviders = false,
                     )
                 }

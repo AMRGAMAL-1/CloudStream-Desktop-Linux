@@ -43,11 +43,20 @@ open class ProgressBar : View {
     constructor(context: Context?, attrs: Any?) : super(context, attrs)
 
     var progress: Int = 0
-        set(value) { field = value; ShadowUi.bump() }
+        set(value) {
+            field = value
+            ShadowUi.bump()
+        }
     var max: Int = 100
-        set(value) { field = value; ShadowUi.bump() }
+        set(value) {
+            field = value
+            ShadowUi.bump()
+        }
     var isIndeterminate: Boolean = false
-        set(value) { field = value; ShadowUi.bump() }
+        set(value) {
+            field = value
+            ShadowUi.bump()
+        }
 }
 
 open class RelativeLayout : ViewGroup {
@@ -69,7 +78,10 @@ open class ListView : ViewGroup {
     constructor(context: Context?, attrs: Any?) : super(context, attrs)
 
     var adapter: ListAdapter? = null
-        set(value) { field = value; ShadowUi.bump() }
+        set(value) {
+            field = value
+            ShadowUi.bump()
+        }
 
     interface OnItemClickListener {
         fun onItemClick(parent: ViewGroup?, view: View?, position: Int, id: Long)

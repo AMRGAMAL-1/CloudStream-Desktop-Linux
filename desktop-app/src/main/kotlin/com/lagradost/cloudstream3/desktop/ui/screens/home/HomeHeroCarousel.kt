@@ -84,9 +84,22 @@ fun HomeHeroCarousel(
     }
 
     LaunchedEffect(items) {
-        items.take(8).forEachIndexed { index, item ->
-            if (index > 0) delay(300L)
+        // Eagerly prefetch only the first 2 slides to keep startup lightweight
+        items.take(2).forEachIndexed { index, item ->
+            if (index > 0) delay(400L)
             onPrefetchHeroItem(provider, item)
+        }
+    }
+
+    // Lazily prefetch the next upcoming slide as carousel advances
+    LaunchedEffect(currentIndex, items) {
+        if (items.isNotEmpty()) {
+            val nextIndex = (currentIndex + 1) % items.size
+            items.getOrNull(nextIndex)?.let { nextItem ->
+                if (!heroMetaMap.containsKey(nextItem.url)) {
+                    onPrefetchHeroItem(provider, nextItem)
+                }
+            }
         }
     }
 
@@ -584,7 +597,7 @@ private fun BoxScope.HeroFilmstrip(
             verticalAlignment = Alignment.Bottom,
             contentPadding = PaddingValues(end = paddingEnd),
         ) {
-            items(displayItems.size, key = { displayItems[it].url }) { index ->
+            items(displayItems.size, key = { "${displayItems[it].url}_$it" }) { index ->
                 val item = displayItems.getOrNull(index) ?: return@items
                 val posterUrl = provider?.fixUrlNull(item.posterUrl)
                 val thumbUrl = posterUrl ?: heroMetaMap[item.url]?.backdropUrl

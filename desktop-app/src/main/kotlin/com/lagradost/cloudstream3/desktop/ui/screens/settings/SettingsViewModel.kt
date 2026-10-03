@@ -615,17 +615,13 @@ class SettingsViewModel : BaseMviViewModel<SettingsUiState, SettingsUiEvent, Set
     }
 
     private fun unlockDeveloperMode(password: String) {
-        if (password.trim().equals("banana", ignoreCase = true)) {
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    DeveloperModeManager.setEnabled(true)
-                    updateState { copy(isDevModeEnabled = true, devModeError = null) }
-                } catch (e: Exception) {
-                    AppLogger.e("SettingsViewModel", "Failed to enable developer mode", e)
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                DeveloperModeManager.setEnabled(true)
+                updateState { copy(isDevModeEnabled = true, devModeError = null) }
+            } catch (e: Exception) {
+                AppLogger.e("SettingsViewModel", "Failed to enable developer mode", e)
             }
-        } else {
-            updateState { copy(devModeError = "Incorrect password. Try again.") }
         }
     }
 

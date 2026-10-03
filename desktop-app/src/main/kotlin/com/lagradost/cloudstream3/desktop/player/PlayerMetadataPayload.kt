@@ -38,6 +38,12 @@ data class PlayerUiSyncState(
     val activeLazyAudioTrackUrl: String? = null,
     val resolution: String?,
     val activeSubtitleOverrideEnabled: Boolean,
+    val activeSubtitleColor: String? = null,
+    val activeSubtitleSize: String? = null,
+    val activeSubtitlePos: String? = null,
+    val activeSubtitleRemoveCaptions: Boolean = false,
+    val activeSubtitleRemoveBloat: Boolean = true,
+    val activeSubtitleUppercase: Boolean = false,
     val isLive: Boolean = false,
     val isAudioOnlyStream: Boolean = false,
     val isAudioMode: Boolean = false,
@@ -113,6 +119,8 @@ data class EpisodePayload(
     val score: Double? = null,
     val watchedPercentage: Double? = null,
     val isSeen: Boolean = false,
+    val isLocked: Boolean = false,
+    val releaseDateText: String? = null,
 )
 
 data class SubtitleTrackPayload(

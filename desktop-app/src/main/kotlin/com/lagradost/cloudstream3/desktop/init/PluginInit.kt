@@ -34,12 +34,36 @@ fun initProviders() {
     AppLogger.i("Registered ${builtIns.size} built-in meta-providers")
 }
 
+private val isPluginsInitialized = java.util.concurrent.atomic.AtomicBoolean(false)
+private val pluginInitLock = Any()
+
 /**
  * Load installed plugins and cloned sites.
  */
 fun initPlugins() {
-    loadInstalledPlugins()
-    loadClonedSites()
+    synchronized(pluginInitLock) {
+        if (isPluginsInitialized.getAndSet(true)) {
+            AppLogger.i("initPlugins() already executed; skipping duplicate invocation.")
+            return
+        }
+        if (SafeModeState.isSafeMode.value) {
+            AppLogger.w("[SafeMode] Third-party plugins bypassed. Only built-in providers will be loaded.")
+            try {
+                com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.refreshProviders()
+            } catch (e: Throwable) {
+                AppLogger.e("Failed to refresh ActiveProviderRepository in Safe Mode", e)
+            }
+            return
+        }
+        loadInstalledPlugins()
+        loadClonedSites()
+        try {
+            com.lagradost.cloudstream3.desktop.repo.ActiveProviderRepository.refreshProviders()
+            AppLogger.i("ActiveProviderRepository refreshed after plugin initialization.")
+        } catch (e: Throwable) {
+            AppLogger.e("Failed to refresh ActiveProviderRepository after plugin init", e)
+        }
+    }
 }
 
 /**
@@ -73,10 +97,18 @@ private fun loadInstalledPlugins() {
             ExtensionLoader.loadAndInit(jarFile)
             loaded++
         } catch (e: Throwable) {
-            // Likely a NoClassDefFoundError due to arbitrary load order. Queue for retry.
-            retryQueue.add(jarFile)
-            AppLogger.e("Deferred loading of ${jarFile.name} (dependency not met yet?)")
-            // Clean up potentially partial state via full unload so second pass doesn't duplicate them
+            val isDependencyError = e is NoClassDefFoundError || e is ClassNotFoundException
+            if (isDependencyError) {
+                retryQueue.add(jarFile)
+                AppLogger.d("Deferred loading of ${jarFile.name} (dependency not met yet?)")
+            } else {
+                failed++
+                AppLogger.e("Failed to load plugin: ${jarFile.name}", e)
+                com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showPluginQuarantined(
+                    pluginName = jarFile.nameWithoutExtension.removeSuffix("-jvm"),
+                    reason = e.message ?: e.javaClass.simpleName,
+                )
+            }
             ExtensionLoader.unloadPlugin(jarFile.absolutePath)
         }
     }
@@ -150,11 +182,10 @@ fun loadClonedSites() {
 /**
  * Launches the background auto-updater that syncs all repositories.
  */
-fun launchAutoUpdater() {
+fun launchAutoUpdater(force: Boolean = false) {
     appScope.launch(Dispatchers.IO) {
         try {
-            DesktopRepositoryManager.syncAll()
-            DesktopRepositoryManager.checkAndApplyPluginUpdates()
+            DesktopRepositoryManager.syncAll(force = force)
         } catch (e: Exception) {
             AppLogger.e("Startup sync failed", e)
         }

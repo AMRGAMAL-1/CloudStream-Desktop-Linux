@@ -7,7 +7,7 @@ class SyncPluginRepositories(
     private val repository: PluginRepository,
 ) {
     suspend fun await(onProgress: (suspend (completed: Int, total: Int) -> Unit)? = null): DesktopRepositoryManager.SyncReport {
-        val report = repository.syncAll(onProgress)
+        val report = repository.syncAll(onProgress, force = true)
         repository.incrementSyncGeneration()
         return report
     }

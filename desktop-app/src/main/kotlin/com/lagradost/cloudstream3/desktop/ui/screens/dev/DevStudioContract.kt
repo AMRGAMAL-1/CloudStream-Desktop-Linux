@@ -18,6 +18,7 @@ enum class DevStudioTab(val title: String) {
 }
 
 data class DevStudioUiState(
+    val isAdvancedMode: Boolean = false,
     val currentTab: DevStudioTab = DevStudioTab.LOGS,
 
     // LogCat State
@@ -59,6 +60,8 @@ data class DevStudioUiState(
 ) : UiState
 
 sealed interface DevStudioUiEvent : UiEvent {
+    data object ToggleAdvancedMode : DevStudioUiEvent
+    data object CopyAllLogs : DevStudioUiEvent
     data class SwitchTab(val tab: DevStudioTab) : DevStudioUiEvent
 
     // LogCat Events

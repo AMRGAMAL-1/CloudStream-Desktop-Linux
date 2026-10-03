@@ -51,7 +51,9 @@ object SubtitleExtractionService {
                 source = source,
             )
 
-            val fileUrl = if (provider != null) {
+            val fileUrl = if (idPrefix == "subsource" || idPrefix.startsWith("subsource")) {
+                com.lagradost.cloudstream3.desktop.subtitles.SubsourceSubtitleProvider.loadSubtitle(data)
+            } else if (provider != null) {
                 SafePluginInvoker.invokeOrNull(
                     tag = "SubLoad:${provider.name}",
                     providerName = provider.name,

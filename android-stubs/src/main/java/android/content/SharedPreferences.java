@@ -84,6 +84,16 @@ class DesktopSharedPreferences implements SharedPreferences {
     public int getInt(String key, int defValue) {
         com.lagradost.common.storage.PluginSettingsSchemaRegistry.INSTANCE.register(getActualPref(), key, "Int", defValue, false);
         Integer val = DesktopDataStore.INSTANCE.getKey(getFullKey(key), Integer.class);
+        String lower = key != null ? key.toLowerCase() : "";
+        if (lower.contains("concurrency") || lower.contains("threads") || lower.contains("parallel")) {
+            if (val == null || val <= 0) {
+                return 8;
+            }
+            if (val > 15) {
+                return 15;
+            }
+            return val;
+        }
         return val != null ? val : defValue;
     }
 

@@ -216,6 +216,12 @@ fun InstalledTab(
                     val hasSchemaSettings = com.lagradost.common.storage.PluginSettingsSchemaRegistry.hasSettings(prefName, plugin.name)
                     val showSettings = hasSchemaSettings || instance?.openSettings != null
 
+                    val hasFailedMarker = remember(plugin, syncGeneration) {
+                        val baseName = plugin.file.nameWithoutExtension.substringBefore("-jvm").substringBefore("-secure")
+                        java.io.File(plugin.file.parentFile, "$baseName.d2j_failed").exists()
+                    }
+                    val isLoaded = instance != null || ExtensionLoader.plugins.containsKey(plugin.file.absolutePath)
+
                     ExtensionCard(
                         name = plugin.name,
                         internalName = plugin.internalName,
@@ -225,9 +231,11 @@ fun InstalledTab(
                         tvTypes = plugin.tvTypes,
                         iconUrl = finalIcon,
                         isInstalled = true,
-                        installStatus = "Installed",
+                        installStatus = if (hasFailedMarker) "Failed (Click to Retry)" else if (!isLoaded) "Disabled" else "Installed",
                         isInstalling = false,
-                        onInstallClick = { },
+                        onInstallClick = {
+                            viewModel.onEvent(ExtensionsUiEvent.OnReloadPluginAfterSettings(plugin.file, plugin.name))
+                        },
                         onUninstallClick = { viewModel.onEvent(ExtensionsUiEvent.OnUninstallPlugins(listOf(plugin))) },
                         description = plugin.description,
                         fileSize = plugin.fileSize,

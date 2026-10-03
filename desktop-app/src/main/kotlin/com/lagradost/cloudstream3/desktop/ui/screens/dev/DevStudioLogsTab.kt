@@ -316,7 +316,7 @@ private fun DevStudioLogToolbar(
 }
 
 @Composable
-private fun DevStudioLogTable(
+internal fun DevStudioLogTable(
     logs: List<LogEntry>,
     selectedEntry: LogEntry?,
     isPaused: Boolean,

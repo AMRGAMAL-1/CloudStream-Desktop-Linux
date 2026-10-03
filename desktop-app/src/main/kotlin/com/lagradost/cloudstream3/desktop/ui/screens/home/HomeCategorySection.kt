@@ -65,37 +65,42 @@ fun HomeCategorySection(
     ) {
         if (isLoading) {
             if (isFirstPage) {
-                HomeHeroCarouselPlaceholder()
+                if (heroEnabled) {
+                    HomeHeroCarouselPlaceholder()
+                }
+                CategoryRowPlaceholder(
+                    title = pageData.name,
+                    showLargeHeader = false,
+                )
             } else {
                 CategoryRowPlaceholder(
                     title = pageData.name,
-                    showLargeHeader = !isFirstPage,
+                    showLargeHeader = true,
                 )
             }
         } else {
             if (hp != null && hp.items.isNotEmpty()) {
                 hp.items.forEachIndexed { sectionIndex, section ->
-                    if (heroEnabled && isFirstPage && sectionIndex == 0 && section.list.size >= 3) {
-                        val heroCandidates = remember(hp.items) {
-                            hp.items.flatMap { it.list }.distinctBy { it.url }.take(30)
+                    if (isFirstPage && sectionIndex == 0) {
+                        if (heroEnabled && section.list.size >= 3) {
+                            val heroCandidates = remember(hp.items) {
+                                hp.items.flatMap { it.list }.distinctBy { it.url }.take(30)
+                            }
+                            HomeHeroCarousel(
+                                items = heroCandidates,
+                                provider = provider,
+                                heroMetaMap = heroMetaMap,
+                                allBookmarks = allBookmarks,
+                                onPrefetchHeroItem = onPrefetchHeroItem,
+                                onHeroBackgroundChanged = onHeroBackgroundChanged,
+                                onItemClick = { item, backdrop, autoPlay -> onItemClick(provider, item, backdrop, autoPlay) },
+                            )
                         }
-                        HomeHeroCarousel(
-                            items = heroCandidates,
-                            provider = provider,
-                            heroMetaMap = heroMetaMap,
-                            allBookmarks = allBookmarks,
-                            onPrefetchHeroItem = onPrefetchHeroItem,
-                            onHeroBackgroundChanged = onHeroBackgroundChanged,
-                            onItemClick = { item, backdrop, autoPlay -> onItemClick(provider, item, backdrop, autoPlay) },
-                        )
                         afterHeroContent()
-                    } else {
-                        val isFirstRowOfFirstPage = isFirstPage && sectionIndex == 0
-                        if (isFirstRowOfFirstPage) {
-                            afterHeroContent()
-                        }
-                        val titleStr = section.name.takeIf { it.isNotBlank() } ?: pageData.name
-                        val showLargeHeader = sectionIndex == 0 && !isFirstPage && !titleStr.equals(pageData.name, ignoreCase = true)
+                    }
+
+                    val titleStr = section.name.takeIf { it.isNotBlank() } ?: pageData.name
+                    val showLargeHeader = sectionIndex == 0 && !isFirstPage && !titleStr.equals(pageData.name, ignoreCase = true)
 
                         val dockPosition by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.dockPosition.collectAsState()
                         // 88.dp base + 10.dp internal (used by Category headers) => visually aligns with 98.dp
@@ -179,9 +184,7 @@ fun HomeCategorySection(
                             }
                         }
                     }
-
-                }
-            } else if (errorMessage != null) {
+                } else if (errorMessage != null) {
                 val dockPosition by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.dockPosition.collectAsState()
                 val paddingStart = if (dockPosition == com.lagradost.cloudstream3.desktop.ui.DockPosition.LEFT) 88.dp else 22.dp
                 val paddingEnd = if (dockPosition == com.lagradost.cloudstream3.desktop.ui.DockPosition.RIGHT) 88.dp else 22.dp

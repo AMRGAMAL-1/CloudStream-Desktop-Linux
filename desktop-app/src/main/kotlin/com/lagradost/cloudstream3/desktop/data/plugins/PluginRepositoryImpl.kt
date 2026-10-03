@@ -36,8 +36,8 @@ class PluginRepositoryImpl : PluginRepository {
         return DesktopRepositoryManager.getAllPlugins()
     }
 
-    override suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)?): DesktopRepositoryManager.SyncReport = withContext(Dispatchers.IO) {
-        DesktopRepositoryManager.syncAll(onProgress)
+    override suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)?, force: Boolean): DesktopRepositoryManager.SyncReport = withContext(Dispatchers.IO) {
+        DesktopRepositoryManager.syncAll(onProgress, force = force)
     }
 
     override suspend fun downloadPlugin(repoName: String, plugin: SitePlugin): File? = withContext(Dispatchers.IO) {

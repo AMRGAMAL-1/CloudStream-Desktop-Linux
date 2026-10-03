@@ -264,7 +264,6 @@ fun EmbeddedVideoPlayer(
                         onEpisodeChange = { epId ->
                             com.lagradost.common.logging.AppLogger.i("EmbeddedVideoPlayer: onEpisodeChange triggered -> new episodeId: $epId")
                             playerState.pause()
-                            playerState.reset()
                             isLoading = true
                             val targetEp = episodes.find { it.data == epId }
                             if (targetEp != null) {
@@ -273,7 +272,6 @@ fun EmbeddedVideoPlayer(
                         },
                         onNextEpisode = {
                             playerState.pause()
-                            playerState.reset()
                             isLoading = true
                             viewModel.onEvent(PlayerUiEvent.OnLoadNextEpisode)
                         },
@@ -313,16 +311,6 @@ fun EmbeddedVideoPlayer(
                             if (safeLink == null || isLoading || isLoadingNextEpisode) return@ComposeNativeWebPlayer
                             playerState.updatePositionFromPlayer(posMs)
                             playerState.updateDurationFromPlayer(durMs)
-                            val durSec = durMs / 1000L
-                            val posSec = posMs / 1000L
-                            if (posSec > 0) {
-                                val updatedHistory = actualLaunchData.history.copy(
-                                    position = posSec,
-                                    duration = if (durSec > 0) durSec else actualLaunchData.history.duration,
-                                    updateTime = System.currentTimeMillis(),
-                                )
-                                viewModel.onEvent(PlayerUiEvent.OnSavePosition(updatedHistory))
-                            }
                         },
                         onCloseRequest = {
                             onClose()

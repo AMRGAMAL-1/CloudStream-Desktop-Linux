@@ -14,12 +14,12 @@ import java.util.concurrent.atomic.AtomicInteger
 object PluginDispatcherProvider {
     private val threadIndex = AtomicInteger(1)
 
-    private val threadCount: Int = maxOf(8, minOf(32, Runtime.getRuntime().availableProcessors() * 2))
+    private val threadCount: Int = minOf(8, maxOf(4, Runtime.getRuntime().availableProcessors()))
 
     private val executor = Executors.newFixedThreadPool(threadCount) { runnable ->
         Thread(runnable, "plugin-worker-${threadIndex.getAndIncrement()}").apply {
             isDaemon = true
-            priority = Thread.NORM_PRIORITY - 1 // Slightly lower priority than UI/audio threads
+            priority = Thread.MIN_PRIORITY + 1 // Significantly lower priority than UI (5) and audio/video threads
         }
     }
 

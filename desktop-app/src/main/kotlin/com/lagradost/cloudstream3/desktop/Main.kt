@@ -46,6 +46,7 @@ import com.lagradost.cloudstream3.desktop.init.rememberFullscreenHelper
 import com.lagradost.cloudstream3.desktop.init.setupWindowBackgroundAndListeners
 import com.lagradost.cloudstream3.desktop.player.ShaderManager
 import com.lagradost.cloudstream3.desktop.ui.CloudstreamApp
+import com.lagradost.cloudstream3.desktop.ui.components.PreAlphaNoticeDialog
 import com.lagradost.cloudstream3.desktop.ui.LocalFullscreenController
 import com.lagradost.cloudstream3.desktop.ui.navigation.DefaultRootComponent
 import com.lagradost.cloudstream3.desktop.ui.screens.dev.DevStudioState
@@ -64,6 +65,17 @@ fun main(args: Array<String> = emptyArray()) {
     initCrashHandler()
     initWindowsEnvironment()
 
+    val safeModeSentinel = java.io.File(PlatformPaths.appDataDir, ".safe_mode")
+    val isSafeModeRequested = args.any { it.equals("--safe-mode", ignoreCase = true) || it.equals("--safe", ignoreCase = true) } ||
+        System.getProperty("cloudstream.safe") != null ||
+        safeModeSentinel.exists()
+
+    if (isSafeModeRequested) {
+        com.lagradost.cloudstream3.desktop.init.SafeModeState.enable()
+        try { safeModeSentinel.delete() } catch (_: Throwable) {}
+        AppLogger.w("Running in SAFE MODE: 3rd-party plugins and non-essential startup routines bypassed.")
+    }
+
     val isDevMode = args.any { it.equals("--dev", ignoreCase = true) || it.equals("--dev-logger", ignoreCase = true) } ||
         System.getProperty("cloudstream.dev") != null
 
@@ -76,9 +88,14 @@ fun main(args: Array<String> = emptyArray()) {
         DevStudioState.open(detached = true)
     }
 
-    ShaderManager.extractBundledShaders()
-    com.lagradost.cloudstream3.desktop.ui.theme.CustomFontManager.extractBundledFonts()
-    com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.preloadAsync()
+    if (!isSafeModeRequested) {
+        ShaderManager.extractBundledShaders()
+        com.lagradost.cloudstream3.desktop.ui.theme.CustomFontManager.extractBundledFonts()
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(30_000L)
+            com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.preloadAsync()
+        }
+    }
     com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.init()
 
     // Initialize SQLite Database, Profiles, AppearanceConfig & MetadataConfig synchronously before Compose starts
@@ -102,7 +119,9 @@ fun main(args: Array<String> = emptyArray()) {
 
     application {
         initCoil()
-        launchPeriodicPluginUpdater()
+        if (!com.lagradost.cloudstream3.desktop.init.SafeModeState.isSafeMode.value) {
+            launchPeriodicPluginUpdater()
+        }
 
         val screenSize = Toolkit.getDefaultToolkit().screenSize
         val windowWidth = (screenSize.width * 0.7).toInt().coerceAtLeast(1000).dp
@@ -176,10 +195,8 @@ fun main(args: Array<String> = emptyArray()) {
                         } catch (_: Throwable) {}
                     }
 
-                    // Splash screen will never block for more than 2.0 seconds regardless of network status
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        startupJob.join()
-                    }
+                    // Wait for core startup (security, providers, local plugins) to finish before dismissing splash
+                    startupJob.join()
 
                     isAppReady = true
 
@@ -189,18 +206,31 @@ fun main(args: Array<String> = emptyArray()) {
                         com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showInfo("Offline Mode: Local library and downloaded content available.")
                     }
 
-                    // Reactive connection listener: instantly sync as soon as internet is connected
+                    // Background updater: wait until startupJob finishes completely and defer non-urgent checks
+                    // so the user has immediate, smooth zero-I/O responsiveness during startup.
                     launch(Dispatchers.IO) {
+                        startupJob.join()
+                        kotlinx.coroutines.delay(45_000L)
+
+                        if (initiallyOnline && !com.lagradost.cloudstream3.desktop.init.SafeModeState.isSafeMode.value) {
+                            launchAutoUpdater()
+                            com.lagradost.cloudstream3.desktop.updates.UnifiedUpdateManager.checkAllUpdates()
+                            com.lagradost.cloudstream3.desktop.AppUpdater.checkForUpdates()
+                        }
+
+                        // Reactive connection listener: instantly sync as soon as internet is restored
                         var wasOffline = !initiallyOnline
                         com.lagradost.cloudstream3.desktop.network.NetworkMonitor.isOnline.collect { online ->
                             if (online) {
                                 if (wasOffline) {
                                     com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showSuccess("Internet connection restored. Synchronizing online content...")
                                     wasOffline = false
+                                    launchAutoUpdater()
+                                    com.lagradost.cloudstream3.desktop.updates.UnifiedUpdateManager.checkAllUpdates()
+                                    com.lagradost.cloudstream3.desktop.AppUpdater.checkForUpdates()
                                 }
-                                launchAutoUpdater()
-                                com.lagradost.cloudstream3.desktop.updates.UnifiedUpdateManager.checkAllUpdates()
-                                com.lagradost.cloudstream3.desktop.AppUpdater.checkForUpdates()
+                            } else {
+                                wasOffline = true
                             }
                         }
                     }
@@ -226,6 +256,21 @@ fun main(args: Array<String> = emptyArray()) {
 
                             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                                 CloudstreamApp(rootComponent = root)
+
+                                val isSafeMode by com.lagradost.cloudstream3.desktop.init.SafeModeState.isSafeMode.collectAsState()
+                                if (isSafeMode) {
+                                    com.lagradost.cloudstream3.desktop.ui.components.SafeModeRecoveryBanner(
+                                        onOpenExtensions = {
+                                            root.bringToFront(com.lagradost.cloudstream3.desktop.ui.navigation.Config.Extensions(initialTab = 1))
+                                        },
+                                        onDismiss = {
+                                            com.lagradost.cloudstream3.desktop.init.SafeModeState.disable()
+                                        },
+                                        modifier = Modifier.align(Alignment.TopCenter),
+                                    )
+                                }
+
+                                PreAlphaNoticeDialog()
 
                                 // In-app Docked Dev Studio Overlay
                                 if (isDevOpen && !isDevDetached) {

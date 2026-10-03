@@ -803,7 +803,7 @@ private fun RenderEpisodesSection(
                                 thumbnailVersion = uiState?.episodeThumbnailVersion ?: 0,
                                 lockUnreleasedEpisodes = lockUnreleasedEpisodes,
                                 uiCardOpacity = uiCardOpacity,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                modifier = Modifier.width(cardWidth).padding(bottom = 12.dp),
                                 enableDownloadButtons = enableDownloadButtons,
                                 onPlay = onPlay,
                                 onDownload = onDownload,

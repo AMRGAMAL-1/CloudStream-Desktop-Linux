@@ -7,6 +7,7 @@ import com.lagradost.cloudstream3.desktop.player.ytdl.DesktopYtDlpBinary
 import com.lagradost.cloudstream3.desktop.ui.components.PlayerShortcutsModal
 import com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.common.logging.AppLogger
 import com.lagradost.player.impl.PlayerLinkHandler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -227,8 +228,8 @@ fun BaseMpvPlayer(
 
         if (link == null) {
             com.lagradost.cloudstream3.desktop.torrent.DesktopTorrentEngine.stopStream()
-            engine.executeCommand("stop")
-            engine.setPropertyString("pause", "yes")
+            engine.stop()
+            engine.pause()
             playerState?._isPaused?.value = true
             playerState?.reset()
             return@LaunchedEffect
@@ -295,6 +296,12 @@ fun BaseMpvPlayer(
         engine.setPropertyString("stream-lavf-o", "")
 
         val isLiveStream = isLive || resolvedLink.name.contains("Live", ignoreCase = true) || resolvedLink.url.contains("live", ignoreCase = true)
+        if (!isLiveStream && !isYouTube && validated.streamKind == PlayerLinkHandler.StreamKind.PROGRESSIVE) {
+            if (QualityDataHelper.getSeekabilityRank(resolvedLink) == 1) {
+                QualityDataHelper.probeRangeSeekability(resolvedLink)
+            }
+        }
+        val isNonSeekable = !QualityDataHelper.isSeekableLink(resolvedLink)
         val userBufferBytes = PlayerConfig.getVideoBufferBytes()
         val userBufferSecs = PlayerConfig.getVideoBufferSecs()
         val userBackBufferBytes = (userBufferBytes * 0.3).toLong().coerceAtLeast(30_000_000L)
@@ -323,6 +330,9 @@ fun BaseMpvPlayer(
             engine.setPropertyString("referrer", "")
             engine.setPropertyString("ytdl-raw-options", "")
         } else {
+            val isPluginLoopback = validated.proxySessionId == null &&
+                (resolvedLink.url.contains("127.0.0.1") || resolvedLink.url.contains("localhost"))
+
             when (validated.streamKind) {
                 PlayerLinkHandler.StreamKind.HLS -> {
                     engine.setPropertyString("hls-bitrate", "max")
@@ -333,15 +343,20 @@ fun BaseMpvPlayer(
                     engine.setPropertyString("cache", "yes")
                     engine.setPropertyString("cache-secs", if (isLiveStream) "15" else userBufferSecs.toString())
                     engine.setPropertyString("demuxer-readahead-secs", if (isLiveStream) "15" else userBufferSecs.toString())
-                    engine.setPropertyString("cache-pause-initial", if (isLiveStream) "no" else "yes")
-                    engine.setPropertyString("cache-pause-wait", if (isLiveStream) "0.5" else "3.5")
-                    engine.setPropertyString(
-                        "demuxer-lavf-o",
-                        "extension_picky=0,http_persistent=0,fflags=+discardcorrupt,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4",
-                    )
+                    engine.setPropertyString("cache-pause-initial", if (isLiveStream || isPluginLoopback) "no" else "yes")
+                    engine.setPropertyString("cache-pause-wait", if (isLiveStream || isPluginLoopback) "0.5" else "3.5")
+                    if (isPluginLoopback) {
+                        engine.setPropertyString("demuxer-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
+                        engine.setPropertyString("demuxer-lavf-probesize", "32768")
+                    } else {
+                        engine.setPropertyString(
+                            "demuxer-lavf-o",
+                            "extension_picky=0,http_persistent=0,fflags=+discardcorrupt,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4,reconnect_max_retries=3,rw_timeout=15000000",
+                        )
+                        engine.setPropertyString("demuxer-lavf-probesize", "1048576")
+                    }
                     engine.setPropertyString("demuxer-seekable-cache", "yes")
                     engine.setPropertyString("force-seekable", if (isLiveStream) "no" else "yes")
-                    engine.setPropertyString("demuxer-lavf-probesize", "1048576")
                 }
                 PlayerLinkHandler.StreamKind.DASH -> {
                     engine.setPropertyString("demuxer-max-bytes", userBufferBytes.toString())
@@ -349,12 +364,17 @@ fun BaseMpvPlayer(
                     engine.setPropertyString("cache", "yes")
                     engine.setPropertyString("cache-secs", if (isLiveStream) "15" else userBufferSecs.toString())
                     engine.setPropertyString("demuxer-readahead-secs", if (isLiveStream) "15" else userBufferSecs.toString())
-                    engine.setPropertyString("cache-pause-initial", if (isLiveStream) "no" else "yes")
-                    engine.setPropertyString("cache-pause-wait", if (isLiveStream) "0.5" else "3.5")
-                    engine.setPropertyString("demuxer-lavf-o", "http_persistent=0,fflags=+discardcorrupt,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4")
+                    engine.setPropertyString("cache-pause-initial", if (isLiveStream || isPluginLoopback) "no" else "yes")
+                    engine.setPropertyString("cache-pause-wait", if (isLiveStream || isPluginLoopback) "0.5" else "3.5")
+                    if (isPluginLoopback) {
+                        engine.setPropertyString("demuxer-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
+                        engine.setPropertyString("demuxer-lavf-probesize", "32768")
+                    } else {
+                        engine.setPropertyString("demuxer-lavf-o", "http_persistent=0,fflags=+discardcorrupt,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4")
+                        engine.setPropertyString("demuxer-lavf-probesize", "1048576")
+                    }
                     engine.setPropertyString("demuxer-seekable-cache", "yes")
                     engine.setPropertyString("force-seekable", "yes")
-                    engine.setPropertyString("demuxer-lavf-probesize", "1048576")
                 }
                 PlayerLinkHandler.StreamKind.PROGRESSIVE -> {
                     engine.setPropertyString("demuxer-max-bytes", userBufferBytes.toString())
@@ -362,11 +382,24 @@ fun BaseMpvPlayer(
                     engine.setPropertyString("cache", "yes")
                     engine.setPropertyString("cache-secs", if (isLiveStream) "15" else userBufferSecs.toString())
                     engine.setPropertyString("demuxer-readahead-secs", if (isLiveStream) "15" else userBufferSecs.toString())
-                    engine.setPropertyString("cache-pause-initial", if (isLiveStream) "no" else "yes")
-                    engine.setPropertyString("cache-pause-wait", if (isLiveStream) "0.5" else "3.5")
-                    engine.setPropertyString("demuxer-lavf-o", "http_persistent=0,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4")
+                    engine.setPropertyString("cache-pause-initial", if (isLiveStream || isPluginLoopback) "no" else "yes")
+                    engine.setPropertyString("cache-pause-wait", if (isLiveStream || isPluginLoopback) "0.5" else "3.5")
+                    if (isNonSeekable) {
+                        engine.setPropertyString(
+                            "demuxer-lavf-o",
+                            if (isPluginLoopback) "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,seekable=0"
+                            else "http_persistent=0,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4,seekable=0",
+                        )
+                        engine.setPropertyString("force-seekable", "no")
+                    } else {
+                        engine.setPropertyString(
+                            "demuxer-lavf-o",
+                            if (isPluginLoopback) "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5"
+                            else "http_persistent=0,reconnect=1,reconnect_streamed=1,reconnect_delay_max=4",
+                        )
+                        engine.setPropertyString("force-seekable", "yes")
+                    }
                     engine.setPropertyString("demuxer-seekable-cache", "yes")
-                    engine.setPropertyString("force-seekable", "yes")
                 }
             }
 
@@ -384,11 +417,15 @@ fun BaseMpvPlayer(
             engine.setPropertyString("http-header-fields", headersStr)
         }
 
-        val startSec = startPositionMs / 1000.0
+        val startSec = if (isNonSeekable) 0.0 else (startPositionMs / 1000.0)
         if (startSec > 0 && !isLiveStream) {
             engine.setPropertyString("start", startSec.toString())
         } else {
             engine.setPropertyString("start", "none")
+        }
+
+        if (isNonSeekable && startPositionMs > 0 && !isLiveStream) {
+            playerState?.showToast("Stream does not support resuming; playing from start")
         }
 
         // Reset video track selection so new video files don't inherit disabled video
@@ -491,7 +528,9 @@ fun BaseMpvPlayer(
                             else -> "auto"
                         }
                         engine.executeCommand("sub-add \"$escapedSub\" $flag \"$escapedTitle\" \"$escapedLang\"")
-                    } catch (_: Throwable) {}
+                    } catch (t: Throwable) {
+                        AppLogger.w("BaseMpvPlayer: Failed to add subtitle track '$escapedTitle': ${t.message}")
+                    }
                 }
             }
         }

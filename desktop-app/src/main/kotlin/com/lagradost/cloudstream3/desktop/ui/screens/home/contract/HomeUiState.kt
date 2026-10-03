@@ -26,6 +26,7 @@ data class HomeUiState(
     val heroMetaMap: Map<String, HeroMeta> = emptyMap(),
     val bookmarks: Map<String, DesktopBookmark> = emptyMap(),
     val disabledCatalogs: Map<String, Set<String>> = emptyMap(),
+    val orderedCatalogs: Map<String, List<String>> = emptyMap(),
     val showHomeManagement: Boolean = false,
     val categories: Map<String, HomeCategoryUiState> = emptyMap(),
     val refreshEpoch: Long = 0L,

@@ -1,6 +1,8 @@
 package com.lagradost.cloudstream3.desktop.ui.screens.details
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -17,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,8 +60,7 @@ fun hasNetworks(
     uiState: DetailsUiState?,
 ): Boolean {
     if (!MetadataConfig.separateNetworks.value) return false
-    return uiState?.enrichedNetworksList?.isNotEmpty() == true ||
-        uiState?.enrichedNetworks?.isNotEmpty() == true
+    return uiState?.enrichedNetworksList?.any { !it.logoUrl.isNullOrBlank() } == true
 }
 
 fun hasStudios(
@@ -67,17 +69,14 @@ fun hasStudios(
     if (!MetadataConfig.separateNetworks.value) {
         return hasStudiosOrNetworks(uiState)
     }
-    return uiState?.enrichedProductionCompanies?.isNotEmpty() == true ||
-        uiState?.enrichedStudios?.isNotEmpty() == true
+    return uiState?.enrichedProductionCompanies?.any { !it.logoUrl.isNullOrBlank() } == true
 }
 
 fun hasStudiosOrNetworks(
     uiState: DetailsUiState?,
 ): Boolean {
-    return uiState?.enrichedProductionCompanies?.isNotEmpty() == true ||
-        uiState?.enrichedNetworksList?.isNotEmpty() == true ||
-        uiState?.enrichedStudios?.isNotEmpty() == true ||
-        uiState?.enrichedNetworks?.isNotEmpty() == true
+    return uiState?.enrichedProductionCompanies?.any { !it.logoUrl.isNullOrBlank() } == true ||
+        uiState?.enrichedNetworksList?.any { !it.logoUrl.isNullOrBlank() } == true
 }
 
 @Composable
@@ -305,8 +304,8 @@ private fun ProductionCompanySectionLayout(
     onCompanyClick: ((ProductionCompany) -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val canExpand = companies.size > 5
-    val visibleCompanies = if (expanded || !canExpand) companies else companies.take(4)
+    val canExpand = companies.size > 8
+    val visibleCompanies = if (expanded || !canExpand) companies else companies.take(8)
 
     Column(
         modifier = modifier
@@ -364,8 +363,8 @@ private fun ProductionCompanySectionLayout(
 
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             visibleCompanies.forEach { company ->
                 ProductionCompanyCard(
@@ -386,13 +385,10 @@ fun DetailsNetworksSection(
     val netCompanies = remember(uiState) {
         val list = mutableListOf<ProductionCompany>()
         if (uiState != null) {
-            list.addAll(uiState.enrichedNetworksList)
-            if (list.isEmpty()) {
-                list.addAll(uiState.enrichedNetworks.map { ProductionCompany(name = it) })
-            }
+            list.addAll(uiState.enrichedNetworksList.filter { !it.logoUrl.isNullOrBlank() })
         }
         list.distinctBy { it.name.trim().lowercase() }
-            .sortedWith(compareByDescending<ProductionCompany> { !it.logoUrl.isNullOrBlank() }.thenBy { it.name })
+            .sortedBy { it.name }
     }
 
     if (netCompanies.isEmpty()) return
@@ -416,10 +412,7 @@ fun DetailsStudiosSection(
     val netCompanies = remember(uiState) {
         val list = mutableListOf<ProductionCompany>()
         if (uiState != null) {
-            list.addAll(uiState.enrichedNetworksList)
-            if (list.isEmpty()) {
-                list.addAll(uiState.enrichedNetworks.map { ProductionCompany(name = it) })
-            }
+            list.addAll(uiState.enrichedNetworksList.filter { !it.logoUrl.isNullOrBlank() })
         }
         list.distinctBy { it.name.trim().lowercase() }
     }
@@ -427,10 +420,7 @@ fun DetailsStudiosSection(
     val prodCompanies = remember(uiState, netCompanies) {
         val list = mutableListOf<ProductionCompany>()
         if (uiState != null) {
-            list.addAll(uiState.enrichedProductionCompanies)
-            if (list.isEmpty()) {
-                list.addAll(uiState.enrichedStudios.map { ProductionCompany(name = it) })
-            }
+            list.addAll(uiState.enrichedProductionCompanies.filter { !it.logoUrl.isNullOrBlank() })
         }
         val distinct = list.distinctBy { it.name.trim().lowercase() }
 
@@ -442,13 +432,13 @@ fun DetailsStudiosSection(
         }
 
         consolidateSubBrands(nonNetwork)
-            .sortedWith(compareByDescending<ProductionCompany> { !it.logoUrl.isNullOrBlank() }.thenBy { it.name })
+            .sortedBy { it.name }
     }
 
     val displayCompanies = remember(separateNetworksPref, netCompanies, prodCompanies) {
         if (!separateNetworksPref && netCompanies.isNotEmpty()) {
             (prodCompanies + netCompanies).distinctBy { it.name.trim().lowercase() }
-                .sortedWith(compareByDescending<ProductionCompany> { !it.logoUrl.isNullOrBlank() }.thenBy { it.name })
+                .sortedBy { it.name }
         } else {
             prodCompanies
         }
@@ -476,20 +466,24 @@ fun ProductionCompanyCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val hasLogo = !company.logoUrl.isNullOrBlank()
+    if (company.logoUrl.isNullOrBlank()) return
+
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (isHovered && onClick != null) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isHovered && onClick != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.12f),
-        ),
+    val scale by animateFloatAsState(
+        targetValue = if (isHovered && onClick != null) 1.06f else 1.0f,
+        animationSpec = tween(durationMillis = 150),
+    )
+
+    Box(
         modifier = modifier
-            .height(84.dp)
-            .widthIn(min = 200.dp, max = 320.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.White.copy(alpha = 0.92f))
             .hoverable(interactionSource)
             .run {
                 if (onClick != null) {
@@ -497,58 +491,16 @@ fun ProductionCompanyCard(
                 } else {
                     this
                 }
-            },
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            if (hasLogo) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 84.dp, height = 56.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color.White.copy(alpha = 0.96f))
-                        .padding(6.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AsyncImage(
-                        model = company.logoUrl,
-                        contentDescription = company.name,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier.weight(1f, fill = false),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = company.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!company.originCountry.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = company.originCountry.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.8.sp,
-                    )
-                }
-            }
-        }
+        AsyncImage(
+            model = company.logoUrl,
+            contentDescription = company.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.height(28.dp).widthIn(max = 100.dp),
+        )
     }
 }
 

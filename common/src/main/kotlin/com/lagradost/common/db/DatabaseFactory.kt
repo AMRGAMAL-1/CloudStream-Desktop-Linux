@@ -3,14 +3,29 @@ package com.lagradost.common.db
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import com.lagradost.common.platform.PlatformPaths
 import java.io.File
+import java.util.Properties
 
 object DatabaseFactory {
     val database: DesktopDatabase by lazy {
         val dbFile = File(PlatformPaths.dataDir, "cloudstream.db")
-        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}")
 
         // Ensure parent directories exist
         dbFile.parentFile?.mkdirs()
+
+        val properties = Properties().apply {
+            setProperty("journal_mode", "WAL")
+            setProperty("busy_timeout", "5000")
+            setProperty("synchronous", "NORMAL")
+        }
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", properties)
+
+        try {
+            driver.execute(null, "PRAGMA journal_mode = WAL;", 0)
+            driver.execute(null, "PRAGMA busy_timeout = 5000;", 0)
+            driver.execute(null, "PRAGMA synchronous = NORMAL;", 0)
+        } catch (_: Exception) {
+            // Safe to ignore if already applied
+        }
 
         // Clean up legacy broken updates table
         try {

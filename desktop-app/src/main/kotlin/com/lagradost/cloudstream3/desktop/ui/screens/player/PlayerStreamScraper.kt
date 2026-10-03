@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.desktop.player.QualityDataHelper
 import com.lagradost.cloudstream3.desktop.player.ytdl.DesktopYtDlpBinary
 import com.lagradost.cloudstream3.desktop.stremio.StremioAddonManager
+import com.lagradost.cloudstream3.desktop.subtitles.SubsourceSubtitleProvider
 import com.lagradost.cloudstream3.desktop.ui.VideoLaunchData
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
@@ -57,23 +58,23 @@ class PlayerStreamScraper(
                 val collectedLinks = mutableListOf<ExtractorLink>()
                 val collectedSubs = mutableListOf<SubtitleFile>()
 
-                if (provider.providerType == ProviderType.MetaProvider || provider.name.equals("Stremio", ignoreCase = true)) {
-                    val resolvedImdbId = when {
-                        nextEpId.startsWith("tt", ignoreCase = true) -> nextEpId.substringBefore(":")
-                        currentData.history.episodeId?.startsWith("tt", ignoreCase = true) == true -> currentData.history.episodeId!!.substringBefore(":")
-                        currentData.loadResponse?.syncData?.get("imdb")?.startsWith("tt", ignoreCase = true) == true -> currentData.loadResponse.syncData["imdb"]
-                        currentData.loadResponse?.url?.startsWith("tt", ignoreCase = true) == true -> currentData.loadResponse.url.substringBefore(":")
-                        else -> com.lagradost.cloudstream3.desktop.metadata.MetadataPipeline.getCachedImdbId(currentData.history.showName)
-                    }
-                    val parts = if (nextEpId.contains(":")) nextEpId.split(":") else emptyList()
-                    val parsedSeason = parts.getOrNull(1)?.toIntOrNull()
-                    val parsedEpisode = parts.getOrNull(2)?.toIntOrNull()
-                    val epNumber = nextEp.episode ?: parsedEpisode ?: currentData.history.episode
-                    val seasonNumber = nextEp.season ?: parsedSeason ?: currentData.history.season
-                    val isSeries = currentData.loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
-                        currentData.loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
-                        seasonNumber != null || epNumber != null
+                val resolvedImdbId = when {
+                    nextEpId.startsWith("tt", ignoreCase = true) -> nextEpId.substringBefore(":")
+                    currentData.history.episodeId?.startsWith("tt", ignoreCase = true) == true -> currentData.history.episodeId!!.substringBefore(":")
+                    currentData.loadResponse?.syncData?.get("imdb")?.startsWith("tt", ignoreCase = true) == true -> currentData.loadResponse.syncData["imdb"]
+                    currentData.loadResponse?.url?.startsWith("tt", ignoreCase = true) == true -> currentData.loadResponse.url.substringBefore(":")
+                    else -> com.lagradost.cloudstream3.desktop.metadata.MetadataPipeline.getCachedImdbId(currentData.history.showName)
+                }
+                val parts = if (nextEpId.contains(":")) nextEpId.split(":") else emptyList()
+                val parsedSeason = parts.getOrNull(1)?.toIntOrNull()
+                val parsedEpisode = parts.getOrNull(2)?.toIntOrNull()
+                val epNumber = nextEp.episode ?: parsedEpisode ?: currentData.history.episode
+                val seasonNumber = nextEp.season ?: parsedSeason ?: currentData.history.season
+                val isSeries = currentData.loadResponse?.type == com.lagradost.cloudstream3.TvType.TvSeries ||
+                    currentData.loadResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse ||
+                    seasonNumber != null || epNumber != null
 
+                if (provider.providerType == ProviderType.MetaProvider || provider.name.equals("Stremio", ignoreCase = true)) {
                     StremioAddonManager.searchStreams(
                         imdbId = resolvedImdbId,
                         season = seasonNumber,
@@ -95,6 +96,16 @@ class PlayerStreamScraper(
                     )
                 }
 
+                SubsourceSubtitleProvider.searchAndCollectSubtitles(
+                    title = currentData.history.showName,
+                    imdbId = resolvedImdbId,
+                    season = seasonNumber,
+                    episode = epNumber,
+                    year = currentData.loadResponse?.year,
+                    isSeries = isSeries,
+                    onSubtitle = { sub -> collectedSubs.add(sub) },
+                )
+
                 if (collectedLinks.isNotEmpty()) {
                     val sorted = QualityDataHelper.sortLinks(collectedLinks)
                     LinkCache.set(nextEpId, sorted, collectedSubs)
@@ -114,7 +125,7 @@ class PlayerStreamScraper(
         targetEpisodeData: Episode?,
         onSubtitle: (SubtitleFile) -> Unit,
         onLink: (ExtractorLink) -> Unit,
-        onSeekableConfirmed: (ExtractorLink) -> Unit,
+        onSeekabilityProbed: (ExtractorLink, Boolean) -> Unit,
     ): Result<Unit> {
         val sharedSubtitleCallback = SafePluginInvoker.wrapCallback("SubtitleCallback") { sub: SubtitleFile ->
             val cleanUrl = sub.url.trim()
@@ -134,9 +145,7 @@ class PlayerStreamScraper(
                     val isSeekable = probeSemaphore.withPermit {
                         QualityDataHelper.probeRangeSeekability(link)
                     }
-                    if (isSeekable) {
-                        onSeekableConfirmed(link)
-                    }
+                    onSeekabilityProbed(link, isSeekable)
                 }
             }
 
@@ -166,6 +175,17 @@ class PlayerStreamScraper(
 
         if (provider.providerType == ProviderType.MetaProvider || provider.name.equals("Stremio", ignoreCase = true)) {
             AppLogger.i("PlayerStreamScraper", "Directly searching stream addons for MetaProvider: ${provider.name}")
+            scope.launch(Dispatchers.IO) {
+                SubsourceSubtitleProvider.searchAndCollectSubtitles(
+                    title = currentLaunchData.history.showName,
+                    imdbId = resolvedImdbId,
+                    season = seasonNumber,
+                    episode = epNumber,
+                    year = currentLaunchData.loadResponse?.year,
+                    isSeries = isSeries,
+                    onSubtitle = { sub -> sharedSubtitleCallback(sub) },
+                )
+            }
             StremioAddonManager.searchStreams(
                 imdbId = resolvedImdbId,
                 season = seasonNumber,
@@ -218,6 +238,18 @@ class PlayerStreamScraper(
                 )
             }
             return Result.success(Unit)
+        }
+
+        scope.launch(Dispatchers.IO) {
+            SubsourceSubtitleProvider.searchAndCollectSubtitles(
+                title = currentLaunchData.history.showName,
+                imdbId = resolvedImdbId,
+                season = seasonNumber,
+                episode = epNumber,
+                year = currentLaunchData.loadResponse?.year,
+                isSeries = isSeries,
+                onSubtitle = { sub -> sharedSubtitleCallback(sub) },
+            )
         }
 
         scope.launch(Dispatchers.IO) {

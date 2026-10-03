@@ -121,7 +121,7 @@ fun HomeHistoryRow(
                     }
                 } else null,
             ) {
-                items(currentList.size, key = { index -> currentList[index].parentId }) { index ->
+                items(currentList.size, key = { index -> "${currentList[index].parentId}_$index" }) { index ->
                     val history = currentList[index]
                     val provider = providerMap[history.parentId]
                     

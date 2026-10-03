@@ -30,7 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class HeroRepositoryImpl : HeroRepository {
     private val prefetchingUrls = ConcurrentHashMap.newKeySet<String>()
-    private val backgroundSemaphore = Semaphore(3)
+    private val backgroundSemaphore = Semaphore(2)
 
     override fun cleanHeroTitle(title: String): String = TitleUtils.cleanProviderTitle(title).first
 
@@ -150,5 +150,5 @@ class HeroRepositoryImpl : HeroRepository {
         }
         close()
         awaitClose { }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(Dispatchers.IO.limitedParallelism(2))
 }

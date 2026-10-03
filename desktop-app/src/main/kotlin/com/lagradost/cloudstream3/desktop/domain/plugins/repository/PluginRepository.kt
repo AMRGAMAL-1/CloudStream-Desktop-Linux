@@ -16,7 +16,7 @@ interface PluginRepository {
     suspend fun addRepository(input: String): List<Repository>?
     suspend fun removeRepository(url: String)
     fun getAllPlugins(): List<Pair<String, SitePlugin>>
-    suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)? = null): DesktopRepositoryManager.SyncReport
+    suspend fun syncAll(onProgress: (suspend (completed: Int, total: Int) -> Unit)? = null, force: Boolean = false): DesktopRepositoryManager.SyncReport
     suspend fun downloadPlugin(repoName: String, plugin: SitePlugin): File?
     fun getPluginIcon(providerName: String?): String?
     fun incrementSyncGeneration()

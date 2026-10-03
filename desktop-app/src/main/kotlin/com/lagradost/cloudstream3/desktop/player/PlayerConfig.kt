@@ -38,6 +38,7 @@ object PlayerConfig {
     const val PREF_SUB_REMOVE_BLOAT = "player_sub_remove_bloat"
     const val PREF_SUB_UPPERCASE = "player_sub_uppercase"
     const val PREF_SUB_POS = "player_sub_pos"
+    const val SUB_FILTER_BLOAT_REGEX = """(?i)(?:Downloaded from|Subtitles by|Encoded by|Synced by|Corrected by|captioned by|translated by|resynced by|www\.\S+|https?://\S+)"""
     const val PREF_SHOW_END_TIME = "player_show_end_time"
     const val PREF_SHOW_CLOCK = "player_show_clock"
     const val PREF_SHOW_SERVER_QUALITY = "player_show_server_quality"
@@ -52,6 +53,8 @@ object PlayerConfig {
     const val PREF_VIDEO_BUFFER_SIZE = "player_video_buffer_size"
     const val PREF_VIDEO_BUFFER_LENGTH = "player_video_buffer_length"
     const val PREF_SEEK_DURATION = "player_seek_duration"
+    const val PREF_SUBSOURCE_API_KEY = "player_subsource_api_key"
+    const val PREF_SUBSOURCE_ENABLED = "player_subsource_enabled"
 
     fun getVideoBufferBytes(): Long {
         val pref = com.lagradost.common.storage.DesktopDataStore.getKey<String>(PREF_VIDEO_BUFFER_SIZE)
@@ -102,6 +105,10 @@ object PlayerConfig {
         lib.mpv_set_option_string(handle, "profile", "fast")
         lib.mpv_set_option_string(handle, "framedrop", "vo")
         lib.mpv_set_option_string(handle, "hr-seek-framedrop", "yes")
+
+        // Network Timeout Protection (15 seconds)
+        // Prevents MPV/FFmpeg demuxer from hanging indefinitely on stalled CDN or proxy connections
+        lib.mpv_set_option_string(handle, "network-timeout", "15")
 
         // Hardware Acceleration — let MPV auto-detect the best decoder with safe recovery fallback.
         val hwdec = DesktopDataStore.getKey<String>(PREF_HWDEC) ?: "auto-safe"
@@ -185,7 +192,7 @@ object PlayerConfig {
             lib.mpv_set_option_string(
                 handle,
                 "sub-filter-regex-append",
-                """(?i)(?:Downloaded from|Subtitles by|Encoded by|Synced by|Corrected by|captioned by|translated by|resynced by|www\.\S+|https?://\S+)"""
+                SUB_FILTER_BLOAT_REGEX
             )
         }
 

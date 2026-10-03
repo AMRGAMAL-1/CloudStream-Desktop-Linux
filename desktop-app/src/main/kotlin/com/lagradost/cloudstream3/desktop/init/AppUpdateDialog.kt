@@ -37,9 +37,9 @@ import java.net.URI
 @Composable
 fun launchPeriodicPluginUpdater() {
     LaunchedEffect(Unit) {
-        // Initial warmup check after startup
-        delay(10_000L)
-        DesktopRepositoryManager.autoUpdatePlugins(force = true)
+        // Defer periodic plugin updates until after initial boot settles and obey cooldowns
+        delay(60_000L)
+        DesktopRepositoryManager.autoUpdatePlugins()
         while (true) {
             delay(30 * 60 * 1000L) // 30 minutes
             DesktopRepositoryManager.autoUpdatePlugins()

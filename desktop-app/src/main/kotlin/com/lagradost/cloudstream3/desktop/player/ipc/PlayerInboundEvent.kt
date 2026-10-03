@@ -52,6 +52,9 @@ sealed interface PlayerInboundEvent {
     data object ToggleSubVisibility : PlayerInboundEvent
     data class SetSubtitleFont(val fontName: String?) : PlayerInboundEvent
     data class SetSubtitleOverrideEnabled(val enabled: Boolean) : PlayerInboundEvent
+    data class SetSubFilterCaptions(val enabled: Boolean) : PlayerInboundEvent
+    data class SetSubFilterBloat(val enabled: Boolean) : PlayerInboundEvent
+    data class SetSubUppercase(val enabled: Boolean) : PlayerInboundEvent
     data object ResetSubtitleSettings : PlayerInboundEvent
     data class SetSubtitleBackground(val backgroundKey: String) : PlayerInboundEvent
     data class SetSubtitleBorderColor(val color: String) : PlayerInboundEvent
@@ -63,6 +66,7 @@ sealed interface PlayerInboundEvent {
     data class SetSubtitleItalic(val italic: String) : PlayerInboundEvent
     data class SearchSubtitles(val query: String, val lang: String?, val season: Int?, val episode: Int?, val imdbId: String? = null) : PlayerInboundEvent
     data class DownloadSubtitle(val idPrefix: String, val data: String, val name: String, val lang: String, val source: String) : PlayerInboundEvent
+    data class SetSubsourceApiKey(val apiKey: String) : PlayerInboundEvent
     data object OpenLocalSubtitlePicker : PlayerInboundEvent
     data class LoadLocalSubtitleFile(val path: String) : PlayerInboundEvent
     data object Screenshot : PlayerInboundEvent
@@ -163,6 +167,9 @@ sealed interface PlayerInboundEvent {
                 "toggleSubVisibility" -> ToggleSubVisibility
                 "setSubtitleFont" -> SetSubtitleFont(eventValue.takeIf { it.isNotBlank() })
                 "setSubtitleOverrideEnabled" -> SetSubtitleOverrideEnabled(eventValue.toBoolean())
+                "setSubFilterCaptions", "setSubFilterSdh" -> SetSubFilterCaptions(eventValue.toBoolean())
+                "setSubFilterBloat" -> SetSubFilterBloat(eventValue.toBoolean())
+                "setSubUppercase" -> SetSubUppercase(eventValue.toBoolean())
                 "resetSubtitleSettings" -> ResetSubtitleSettings
                 "setSubtitleBackground" -> SetSubtitleBackground(eventValue)
                 "setSubtitleBorderColor" -> SetSubtitleBorderColor(eventValue)
@@ -175,6 +182,7 @@ sealed interface PlayerInboundEvent {
 
                 "searchSubtitles" -> parseSearchSubtitles(rootNode, rawPayload)
                 "downloadSubtitle" -> parseDownloadSubtitle(rootNode, rawPayload)
+                "setSubsourceApiKey" -> SetSubsourceApiKey(eventValue.trim())
                 "openLocalSubtitlePicker" -> OpenLocalSubtitlePicker
                 "loadLocalSubtitleFile" -> LoadLocalSubtitleFile(eventValue)
                 "screenshot" -> Screenshot

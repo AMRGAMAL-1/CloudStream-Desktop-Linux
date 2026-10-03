@@ -98,7 +98,10 @@ internal object PluginNetworkClient {
         val request = Request.Builder().url(finalUrl).build()
         try {
             redirectClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
+                if (!response.isSuccessful) {
+                    AppLogger.w("Failed to fetch repository manifest from $finalUrl (HTTP ${response.code})")
+                    return@withContext null
+                }
                 val body = response.body.string()
                 if (body.trimStart().startsWith("<")) {
                     AppLogger.i("Repo fetch from $url returned HTML — likely behind a WAF.")
@@ -145,7 +148,7 @@ internal object PluginNetworkClient {
                 )
             }
         } catch (e: Exception) {
-            AppLogger.i("Failed to fetch repository $url: ${e.message}")
+            AppLogger.w("Error fetching repository manifest from $url: ${e.message}")
             return@withContext null
         }
     }
@@ -155,7 +158,10 @@ internal object PluginNetworkClient {
         try {
             val request = Request.Builder().url(pluginListUrl).build()
             redirectClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
+                if (!response.isSuccessful) {
+                    AppLogger.w("Failed to fetch plugins list from $pluginListUrl (HTTP ${response.code})")
+                    return@withContext emptyList()
+                }
                 val body = response.body.string()
                 if (body.trimStart().startsWith("<")) {
                     AppLogger.i("Plugin list from $pluginListUrl returned HTML — likely behind a WAF.")
@@ -176,7 +182,7 @@ internal object PluginNetworkClient {
                     }
             }
         } catch (e: Exception) {
-            AppLogger.i("Failed to fetch or parse plugins from $pluginListUrl: ${e.message}")
+            AppLogger.w("Error fetching or parsing plugins from $pluginListUrl: ${e.message}")
             emptyList()
         }
     }

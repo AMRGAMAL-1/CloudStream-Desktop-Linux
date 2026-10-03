@@ -82,10 +82,18 @@ fun ComposeHomeScreen(
         }
 
         // Main content area
-        val allPages = remember(activeProviderApis, uiState.disabledCatalogs, uiState.refreshEpoch) {
+        val allPages = remember(activeProviderApis, uiState.disabledCatalogs, uiState.orderedCatalogs, uiState.refreshEpoch) {
             activeProviderApis.flatMap { prov ->
                 val disabledForProv = uiState.disabledCatalogs[prov.name] ?: emptySet()
-                prov.mainPage.filter { it.name !in disabledForProv }.map { prov to it }
+                val orderedForProv = uiState.orderedCatalogs[prov.name] ?: emptyList()
+                val enabledCatalogs = prov.mainPage.filter { it.name !in disabledForProv }
+                val sortedCatalogs = if (orderedForProv.isNotEmpty()) {
+                    val orderMap = orderedForProv.withIndex().associate { it.value to it.index }
+                    enabledCatalogs.sortedBy { orderMap[it.name] ?: Int.MAX_VALUE }
+                } else {
+                    enabledCatalogs
+                }
+                sortedCatalogs.map { prov to it }
             }
         }
 
@@ -94,12 +102,15 @@ fun ComposeHomeScreen(
             allProviders = providers,
             activeProviders = activeProviders,
             disabledCatalogs = uiState.disabledCatalogs,
+            orderedCatalogs = uiState.orderedCatalogs,
             pluginIcons = mergedPluginIcons,
             onDismissRequest = { viewModel.onEvent(HomeUiEvent.OnShowHomeManagement(false)) },
             onSetSingleProvider = { name -> viewModel.onEvent(HomeUiEvent.OnSetSingleProvider(name)) },
             onToggleProviderActive = { name, isActive -> viewModel.onEvent(HomeUiEvent.OnToggleProviderActive(name, isActive)) },
             onMoveProvider = { from, to -> viewModel.onEvent(HomeUiEvent.OnMoveProvider(from, to)) },
             onToggleCatalog = { prov, cat, enabled -> viewModel.onEvent(HomeUiEvent.OnToggleCatalog(prov, cat, enabled)) },
+            onMoveCatalog = { prov, from, to -> viewModel.onEvent(HomeUiEvent.OnMoveCatalog(prov, from, to)) },
+            onResetCatalogOrder = { prov -> viewModel.onEvent(HomeUiEvent.OnResetCatalogOrder(prov)) },
         )
 
         if (allPages.isNotEmpty()) {

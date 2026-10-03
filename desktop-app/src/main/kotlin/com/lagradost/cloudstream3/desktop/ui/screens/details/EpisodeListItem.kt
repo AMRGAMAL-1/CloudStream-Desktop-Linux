@@ -353,37 +353,7 @@ fun EpisodeListItem(
                     }
                 }
 
-                // Row 2: Metadata row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ep.episode?.let { epNum ->
-                        Text(
-                            text = if (ep.season != null) "Season ${ep.season} Episode $epNum" else "Episode $epNum",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold),
-                            color = heroColor.copy(alpha = 0.9f),
-                        )
-                    }
-
-                    if (runTimeStr != null) {
-                        Text(
-                            text = "•  $runTimeStr",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp),
-                            color = Color.White.copy(alpha = 0.60f),
-                        )
-                    }
-
-                    if (formattedDate != null) {
-                        Text(
-                            text = "•  $formattedDate",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp),
-                            color = if (isEpisodeLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.60f),
-                        )
-                    }
-                }
-
-                // Row 3: Synopsis
+                // Row 2: Synopsis
                 Box(modifier = Modifier.widthIn(max = 750.dp)) {
                     Text(
                         text = when {
@@ -395,6 +365,35 @@ fun EpisodeListItem(
                         color = Color.White.copy(alpha = if (hasDesc && !shouldHideSpoilers) 0.78f else 0.45f),
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            // 3. Right-Aligned Metadata
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(end = 12.dp)
+            ) {
+                ep.episode?.let { epNum ->
+                    Text(
+                        text = if (ep.season != null) "S${ep.season} E$epNum" else "Ep $epNum",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+                        color = heroColor.copy(alpha = 0.9f),
+                    )
+                }
+                if (runTimeStr != null) {
+                    Text(
+                        text = runTimeStr,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp),
+                        color = Color.White.copy(alpha = 0.60f),
+                    )
+                }
+                if (formattedDate != null) {
+                    Text(
+                        text = formattedDate,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.5.sp),
+                        color = if (isEpisodeLocked) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.60f),
                     )
                 }
             }

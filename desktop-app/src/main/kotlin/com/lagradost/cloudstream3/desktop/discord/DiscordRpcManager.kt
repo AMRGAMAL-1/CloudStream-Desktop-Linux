@@ -58,6 +58,9 @@ object DiscordRpcManager {
     @Volatile private var lastConnectAttemptMs = 0L
     @Volatile private var hasLoggedOffline = false
 
+    @Volatile private var lastBrowsingScreen: String = "Home"
+    @Volatile private var lastBrowsingExtra: String? = null
+
     fun init() {
         // Single dispatcher worker — all IPC calls are serialized here
         scope.launch {
@@ -74,12 +77,12 @@ object DiscordRpcManager {
         // Reconnect heartbeat — uses its own IO scope so it never starves the dispatch loop
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             while (isActive) {
-                delay(30_000L)
+                delay(8_000L)
                 val state = currentState
                 if (isRpcEnabled() && state !is PresenceState.None) {
                     try {
                         if (!client.isConnected()) {
-                            val connected = withTimeout(5_000) { client.connect(getActiveClientId()) }
+                            val connected = withTimeout(3_000) { client.connect(getActiveClientId()) }
                             if (connected) {
                                 if (hasLoggedOffline) {
                                     AppLogger.i(TAG, "✓ Connected to Discord RPC")
@@ -98,6 +101,9 @@ object DiscordRpcManager {
     }
 
     fun updateBrowsing(screen: String, extra: String? = null) {
+        lastBrowsingScreen = screen
+        lastBrowsingExtra = extra
+
         val isEnabled = isRpcEnabled()
         val showBrowsing = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_DISCORD_RPC_SHOW_BROWSING) ?: true
         AppLogger.d(TAG, "updateBrowsing('$screen', extra='$extra') enabled=$isEnabled showBrowsing=$showBrowsing")
@@ -106,6 +112,9 @@ object DiscordRpcManager {
                 currentState = PresenceState.None
                 updateChannel.trySend(PresenceState.None)
             }
+            return
+        }
+        if (currentState is PresenceState.Playing) {
             return
         }
         val newState = PresenceState.Browsing(screen, extra)
@@ -134,7 +143,7 @@ object DiscordRpcManager {
         val isDurationChanged = durationSeconds > 0 && durationSeconds != lastPlayingDurationSec
         val elapsedSec = if (lastPlayingTimestampMs > 0 && !isPaused) (now - lastPlayingTimestampMs) / 1000L else 0L
         val expectedPosSec = lastPlayingPositionSec + elapsedSec
-        val isSeekDetected = lastPlayingPositionSec >= 0 && kotlin.math.abs(positionSeconds - expectedPosSec) >= 2L
+        val isSeekDetected = lastPlayingPositionSec >= 0 && kotlin.math.abs(positionSeconds - expectedPosSec) >= 4L
         val isResuming = lastSentIsPaused == true && !isPaused
 
         if (isMediaChanged || isPauseChanged || isDurationChanged || isSeekDetected || isResuming || lastPlayingPositionSec < 0) {
@@ -184,7 +193,7 @@ object DiscordRpcManager {
         lastSentIsPaused = null
 
         val showBrowsing = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_DISCORD_RPC_SHOW_BROWSING) ?: true
-        val newState = if (isRpcEnabled() && showBrowsing) PresenceState.Browsing("Home") else PresenceState.None
+        val newState = if (isRpcEnabled() && showBrowsing) PresenceState.Browsing(lastBrowsingScreen, lastBrowsingExtra) else PresenceState.None
         currentState = newState
         updateChannel.trySend(newState)
     }
@@ -244,14 +253,14 @@ object DiscordRpcManager {
 
         if (!client.isConnected()) {
             val now = System.currentTimeMillis()
-            // Backoff: do not probe named pipes more than once per 20 seconds during UI events
-            if (now - lastConnectAttemptMs < 20_000L) {
+            // Backoff: do not probe named pipes more than once per 3 seconds during UI events
+            if (now - lastConnectAttemptMs < 3_000L) {
                 return
             }
             lastConnectAttemptMs = now
 
             val ok = try {
-                withTimeout(5_000) { client.connect(getActiveClientId()) }
+                withTimeout(3_000) { client.connect(getActiveClientId()) }
             } catch (_: Exception) {
                 false
             }
@@ -295,8 +304,16 @@ object DiscordRpcManager {
         }
     }
 
-    private fun String.limit(max: Int): String =
-        if (length > max) substring(0, max - 1) + "…" else this
+    private fun String.limit(max: Int): String {
+        if (length <= max) return this
+        val cut = substring(0, max - 1)
+        val lastSpace = cut.lastIndexOf(' ')
+        return if (lastSpace > max / 2) {
+            cut.substring(0, lastSpace).trimEnd() + "…"
+        } else {
+            cut + "…"
+        }
+    }
 
     private fun buildActivityPayload(state: PresenceState): String? {
         val showTitle = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_DISCORD_RPC_SHOW_TITLE) ?: true
@@ -306,19 +323,19 @@ object DiscordRpcManager {
 
         when (state) {
             is PresenceState.Browsing -> {
-                activityMap["type"] = 0 // PLAYING
+                activityMap["type"] = 3 // WATCHING
                 val detailsText = when (state.screen.lowercase()) {
-                    "settings" -> "Tuning the flux capacitor"
-                    "search" -> "Searching for something to watch for 45 minutes"
-                    "extensions" -> "Hoarding every plugin in existence"
-                    "history", "watch history" -> "Revisiting past life choices"
-                    "library" -> "Organizing the watchlist archive"
-                    "explore", "explore & catalogs" -> "Scouring the global catalog"
-                    "details" -> if (!state.extra.isNullOrBlank()) "Deciding if '${state.extra}' is worth 2 hours" else "Deciding if this title is worth 2 hours"
-                    else -> "Doom-scrolling through movies"
+                    "settings" -> "Configuring Settings"
+                    "search" -> if (!state.extra.isNullOrBlank()) "Searching: ${state.extra}" else "Searching Catalog"
+                    "extensions" -> "Managing Plugins"
+                    "history", "watch history" -> "Viewing Watch History"
+                    "library" -> "Browsing Library"
+                    "downloads" -> "Viewing Downloads"
+                    "explore", "explore & catalogs" -> if (!state.extra.isNullOrBlank()) "Exploring ${state.extra}" else "Exploring Catalog"
+                    "details" -> if (!state.extra.isNullOrBlank()) "Viewing: ${state.extra}" else "Viewing Details"
+                    else -> "Browsing Catalog"
                 }
                 activityMap["details"] = detailsText.limit(128)
-                activityMap["state"] = "CloudStream Desktop"
                 // Timestamps: Discord expects UNIX seconds, not milliseconds
                 activityMap["timestamps"] = mapOf("start" to sessionStartEpochSec)
                 activityMap["assets"] = mapOf(
@@ -330,37 +347,27 @@ object DiscordRpcManager {
             is PresenceState.Playing -> {
                 activityMap["type"] = 3 // WATCHING
 
-                val displayTitle = if (showTitle) state.title else "Media"
+                val displayTitle = if (showTitle && state.title.isNotBlank()) state.title else "Media"
                 activityMap["details"] = displayTitle.limit(128)
 
                 val episodeText = if (showTitle && !state.episodeInfo.isNullOrBlank()) state.episodeInfo else null
 
                 // Timestamps: Discord expects UNIX seconds
-                // Paused: send frozen start-only timestamp so progress bar stops at current position
-                // Playing: send start + end for the full progress bar
                 val nowSec = System.currentTimeMillis() / 1000L
-                val fsSuffix = if (state.isFullscreen) " (Fullscreen)" else ""
 
                 if (state.isLive) {
-                    val liveState = if (state.isPaused) "🔴 Live Stream • Paused" else "🔴 Live Stream"
-                    activityMap["state"] = ((if (episodeText != null) "$episodeText • $liveState" else liveState) + fsSuffix).limit(128)
+                    val liveState = if (state.isPaused) "Live (Paused)" else "Live"
+                    activityMap["state"] = (if (episodeText != null) "$episodeText • $liveState" else liveState).limit(128)
                     if (!state.isPaused) {
                         // Live streams count elapsed watching time
                         activityMap["timestamps"] = mapOf("start" to (nowSec - state.positionSeconds.coerceAtLeast(0)))
                     }
                 } else if (state.isPaused) {
-                    val timeInfo = if (state.durationSeconds > 0) {
-                        "${formatDuration(state.positionSeconds)} / ${formatDuration(state.durationSeconds)} • Paused"
-                    } else {
-                        "Paused"
-                    }
-                    activityMap["state"] = ((if (episodeText != null) "$episodeText • $timeInfo" else timeInfo) + fsSuffix).limit(128)
+                    activityMap["state"] = (if (episodeText != null) "$episodeText (Paused)" else "Paused").limit(128)
                     // When paused, do NOT set timestamps so Discord's internal live timer stays static
                 } else {
                     if (episodeText != null) {
-                        activityMap["state"] = (episodeText + fsSuffix).limit(128)
-                    } else if (state.isFullscreen) {
-                        activityMap["state"] = "Watching in Fullscreen"
+                        activityMap["state"] = episodeText.limit(128)
                     }
                     if (state.durationSeconds > 0 && showProgress) {
                         val startSec = nowSec - state.positionSeconds
@@ -378,10 +385,9 @@ object DiscordRpcManager {
                     assetsMap["small_image"] = DEFAULT_ASSET_KEY
 
                     val statusText = when {
-                        state.isLive -> "🔴 Live Broadcast"
+                        state.isLive -> "Live Broadcast"
                         state.isPaused -> "Paused"
-                        state.isFullscreen -> "Watching in Fullscreen"
-                        else -> "CloudStream Desktop"
+                        else -> "CloudStream"
                     }
                     assetsMap["small_text"] = statusText
                 } else {

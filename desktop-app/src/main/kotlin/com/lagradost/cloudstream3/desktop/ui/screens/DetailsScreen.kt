@@ -441,9 +441,8 @@ fun DetailsContent(
         uiState?.watchHistory?.values?.maxByOrNull { it.updateTime }
     }
 
-    var selectedScreenshot by remember { mutableStateOf<String?>(null) }
-    var screenshotsExpanded by remember { mutableStateOf(true) }
     var trailersExpanded by remember { mutableStateOf(true) }
+    var lightboxIndex by remember { mutableStateOf<Int?>(null) }
 
     val isMovieLike = remember(data) {
         data is com.lagradost.cloudstream3.MovieLoadResponse || data is com.lagradost.cloudstream3.TorrentLoadResponse || data is com.lagradost.cloudstream3.LiveStreamLoadResponse ||
@@ -727,11 +726,10 @@ fun DetailsContent(
                                     Box(modifier = Modifier.fillMaxWidth().padding(top = 48.dp)) {
                                         com.lagradost.cloudstream3.desktop.ui.screens.details.DetailsScreenshotsSection(
                                             screenshots = screenshots,
-                                            screenshotsExpanded = screenshotsExpanded,
-                                            onToggleExpand = { screenshotsExpanded = !screenshotsExpanded },
-                                            onScreenshotClick = { selectedScreenshot = it },
+                                            onThumbnailClick = { lightboxIndex = it },
                                             horizontalPadding = hPadding,
                                         )
+
                                     }
                                 }
                             }
@@ -829,31 +827,29 @@ fun DetailsContent(
             )
         }
 
+        // Fullscreen screenshot lightbox — must be at outer Box level to cover the whole window
+        val lightboxScreenshots = screenshots
+        var lastValidLightboxIndex by remember { mutableStateOf(0) }
+        LaunchedEffect(lightboxIndex) {
+            if (lightboxIndex != null) {
+                lastValidLightboxIndex = lightboxIndex!!
+            }
+        }
+
         androidx.compose.animation.AnimatedVisibility(
-            visible = selectedScreenshot != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize(),
+            visible = lightboxIndex != null && !lightboxScreenshots.isNullOrEmpty(),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = 0.95f),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing), targetScale = 0.97f),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.9f))
-                    .clickable { selectedScreenshot = null },
-                contentAlignment = Alignment.Center,
-            ) {
-                coil3.compose.AsyncImage(
-                    model = selectedScreenshot,
-                    contentDescription = "Screenshot Full",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
+            if (!lightboxScreenshots.isNullOrEmpty()) {
+                val safeIndex = (lightboxIndex ?: lastValidLightboxIndex).coerceIn(0, lightboxScreenshots.lastIndex)
+                com.lagradost.cloudstream3.desktop.ui.screens.details.ScreenshotLightbox(
+                    screenshots = lightboxScreenshots,
+                    initialIndex = safeIndex,
+                    onDismiss = { lightboxIndex = null },
                 )
-                IconButton(
-                    onClick = { selectedScreenshot = null },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-                }
             }
         }
 

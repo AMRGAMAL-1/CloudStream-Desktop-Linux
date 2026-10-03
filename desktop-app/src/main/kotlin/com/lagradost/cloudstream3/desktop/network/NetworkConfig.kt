@@ -230,6 +230,8 @@ object NetworkConfig {
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(20, TimeUnit.SECONDS)
             .cookieJar(cookieJar)
+            .connectionPool(okhttp3.ConnectionPool(50, 90, TimeUnit.SECONDS))
+            .eventListenerFactory(LeakSafeEventListener.FACTORY)
 
         // Apply DoH Provider
         when (provider) {

@@ -315,7 +315,7 @@ fun ExploreScreen(
                     },
                     dockPosition = dockPosition,
                 )
-            } else if (uiState.isShelvesMode && uiState.drilledCatalog == null) {
+            } else if (uiState.drilledCatalog == null) {
                 if (uiState.isShelvesLoading && uiState.shelves.all { it.items.isEmpty() }) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -342,119 +342,13 @@ fun ExploreScreen(
                     )
                 }
             } else {
-                // Classic or Drilled Grid View (padded down so it does not collide with floating controls)
-                val gridTopPadding = if (uiState.drilledCatalog != null) 124.dp else 98.dp
+                // Focused Drilled Catalog Grid View (padded down so it does not collide with floating controls)
+                val gridTopPadding = 124.dp
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = gridTopPadding),
                 ) {
-                    if (uiState.drilledCatalog == null && uiState.filteredCatalogs.isNotEmpty()) {
-                        val gridBarStart = if (dockPosition == DockPosition.LEFT) 88.dp else 24.dp
-                        val gridBarEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 24.dp
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = gridBarStart, end = gridBarEnd)
-                                .height(30.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                                contentAlignment = Alignment.CenterStart,
-                            ) {
-                                LazyRow(
-                                    state = catalogListState,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    contentPadding = PaddingValues(horizontal = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    items(uiState.filteredCatalogs, key = { "${it.addonBaseUrl}_${it.type}_${it.id}" }) { catalog ->
-                                        val isSelected = uiState.selectedCatalog?.id == catalog.id &&
-                                            uiState.selectedCatalog?.addonBaseUrl == catalog.addonBaseUrl
-                                        CompactCatalogChip(
-                                            catalog = catalog,
-                                            isSelected = isSelected,
-                                            onClick = { viewModel.onEvent(ExploreUiEvent.SelectCatalog(catalog)) },
-                                        )
-                                    }
-                                }
-
-                                val canScrollLeft by remember { derivedStateOf { catalogListState.canScrollBackward } }
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = canScrollLeft,
-                                    enter = fadeIn(),
-                                    exit = fadeOut(),
-                                    modifier = Modifier.align(Alignment.CenterStart),
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                                        shadowElevation = 6.dp,
-                                        modifier = Modifier.size(26.dp),
-                                        onClick = {
-                                            coroutineScope.launch { catalogListState.animateScrollBy(-300f) }
-                                        },
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.ChevronLeft,
-                                                contentDescription = "Scroll Left",
-                                                tint = theme.TextPrimary,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        }
-                                    }
-                                }
-
-                                val canScrollRight by remember { derivedStateOf { catalogListState.canScrollForward } }
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = canScrollRight,
-                                    enter = fadeIn(),
-                                    exit = fadeOut(),
-                                    modifier = Modifier.align(Alignment.CenterEnd),
-                                ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
-                                        shadowElevation = 6.dp,
-                                        modifier = Modifier.size(26.dp),
-                                        onClick = {
-                                            coroutineScope.launch { catalogListState.animateScrollBy(300f) }
-                                        },
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                imageVector = Icons.Default.ChevronRight,
-                                                contentDescription = "Scroll Right",
-                                                tint = theme.TextPrimary,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            val selectedCat = uiState.selectedCatalog
-                            if (selectedCat != null && selectedCat.genres.isNotEmpty()) {
-                                Spacer(modifier = Modifier.width(10.dp))
-                                GenreDropdown(
-                                    selectedGenre = uiState.selectedGenre,
-                                    genres = selectedCat.genres,
-                                    onSelectGenre = { viewModel.onEvent(ExploreUiEvent.SelectGenre(it)) },
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
-
                     ExploreGridView(
                         uiState = uiState,
                         gridState = gridState,
@@ -1001,11 +895,10 @@ private fun ExploreShelvesView(
     val dockPosition by AppearanceConfig.dockPosition.collectAsState()
 
     val filteredShelves = remember(shelves) {
-        val seenIds = mutableSetOf<String>()
         shelves.map { shelf ->
             if (shelf.items.isEmpty()) shelf
             else {
-                val uniqueItems = shelf.items.filter { item -> seenIds.add(item.id) }
+                val uniqueItems = shelf.items.distinctBy { it.id }
                 shelf.copy(items = uniqueItems)
             }
         }
@@ -1121,10 +1014,22 @@ private fun ExploreShelvesView(
 
                     val rowVerticalPadding = if (isCompact) 4.dp else (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
 
-                    val rowTitle = if (shelf.catalog.addonName.isNotBlank() && !shelf.catalog.name.contains(shelf.catalog.addonName, ignoreCase = true)) {
-                        "${shelf.catalog.name}  •  ${shelf.catalog.addonName}"
+                    val typeLabel = when (shelf.catalog.type.lowercase(java.util.Locale.US)) {
+                        "series", "tv" -> "Series"
+                        "movie" -> "Movies"
+                        "anime" -> "Anime"
+                        "collections" -> "Collections"
+                        else -> ""
+                    }
+                    val withType = if (typeLabel.isNotBlank() && !shelf.catalog.name.contains(typeLabel, ignoreCase = true)) {
+                        "${shelf.catalog.name} ($typeLabel)"
                     } else {
                         shelf.catalog.name
+                    }
+                    val rowTitle = if (shelf.catalog.addonName.isNotBlank() && !shelf.catalog.name.contains(shelf.catalog.addonName, ignoreCase = true)) {
+                        "$withType  •  ${shelf.catalog.addonName}"
+                    } else {
+                        withType
                     }
 
                     CategoryRowWithHeader(
@@ -1148,7 +1053,7 @@ private fun ExploreShelvesView(
                     ) {
                         items(
                             count = shelf.items.size,
-                            key = { i -> "${shelf.catalog.id}_${shelf.items[i].id}" },
+                            key = { i -> "${shelf.catalog.id}_${shelf.items[i].id}_$i" },
                         ) { i ->
                             val item = shelf.items[i]
                             val watchHistory = watchHistoryMap[item.id]
@@ -1319,7 +1224,7 @@ private fun PlatformShelvesView(
                     ) {
                         items(
                             count = shelf.items.size,
-                            key = { i -> "${shelf.catalog.id}_${shelf.items[i].id}" },
+                            key = { i -> "${shelf.catalog.id}_${shelf.items[i].id}_$i" },
                         ) { i ->
                             val item = shelf.items[i]
                             val watchHistory = watchHistoryMap[item.id]
@@ -2109,7 +2014,7 @@ private fun ExploreGridView(
         ) {
             items(
                 count = uiState.displayItems.size,
-                key = { index -> uiState.displayItems[index].id },
+                key = { index -> "${uiState.displayItems[index].id}_$index" },
             ) { index ->
                 val item = uiState.displayItems[index]
                 val watchHistory = uiState.watchHistoryMap[item.id]

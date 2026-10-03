@@ -117,7 +117,7 @@ data class SettingsUiState(
     val engineState: TorrServerEngineState = TorrServerEngineState(),
     val updateCheckState: UpdateCheckState = UpdateCheckState(),
     val clearanceState: ClearanceState = ClearanceState(),
-    val isDevModeEnabled: Boolean = false,
+    val isDevModeEnabled: Boolean = true,
     val devModeError: String? = null,
     val providerTestState: ProviderTestReportState = ProviderTestReportState(),
     val diagnosticsState: DiagnosticsState = DiagnosticsState(),
