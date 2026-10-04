@@ -8,6 +8,9 @@ object PlayerConfig {
     const val PREF_GPU_API = "player_gpu_api"
     const val PREF_AUDIO_NORMALIZATION = "player_audio_normalization"
     const val PREF_AUDIO_NORM_STRENGTH = "player_audio_norm_strength"
+    const val PREF_AUDIO_VOLUME = "player_audio_volume"
+    const val PREF_AUDIO_MUTED = "player_audio_muted"
+    const val PREF_PLAYBACK_SPEED = "player_playback_speed"
     const val PREF_AUDIO_VOLUME_MAX = "player_audio_volume_max"
     const val PREF_AUDIO_SPATIAL = "player_audio_spatial"
     const val PREF_AUDIO_EQ_PRESET = "player_audio_eq_preset"
@@ -101,6 +104,15 @@ object PlayerConfig {
     }
 
     fun applyMpvSettings(handle: Pointer, lib: MpvLibrary) {
+        val startVolume = DesktopDataStore.getKey<Float>(PREF_AUDIO_VOLUME) ?: 100f
+        lib.mpv_set_option_string(handle, "volume", startVolume.toString())
+
+        val startMuted = DesktopDataStore.getKey<Boolean>(PREF_AUDIO_MUTED) ?: false
+        lib.mpv_set_option_string(handle, "mute", if (startMuted) "yes" else "no")
+
+        val startSpeed = DesktopDataStore.getKey<Float>(PREF_PLAYBACK_SPEED) ?: 1f
+        lib.mpv_set_option_string(handle, "speed", startSpeed.toString())
+
         // Fast rendering profile to eliminate shader overhead in embedded presentation
         lib.mpv_set_option_string(handle, "profile", "fast")
         lib.mpv_set_option_string(handle, "framedrop", "vo")
@@ -433,3 +445,4 @@ object LanguageMatcher {
         }
     }
 }
+
