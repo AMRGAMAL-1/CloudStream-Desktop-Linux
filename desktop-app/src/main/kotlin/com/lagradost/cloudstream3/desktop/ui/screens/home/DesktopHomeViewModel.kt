@@ -102,10 +102,8 @@ class DesktopHomeViewModel(
         }
 
         viewModelScope.launch {
-            DesktopRepositoryManager.syncGeneration.collect { syncGen ->
-                if (syncGen > 0) {
-                    reloadIcons()
-                }
+            DesktopRepositoryManager.remotePluginIcons.collectLatest { icons ->
+                updateState { copy(mergedPluginIcons = icons) }
             }
         }
 

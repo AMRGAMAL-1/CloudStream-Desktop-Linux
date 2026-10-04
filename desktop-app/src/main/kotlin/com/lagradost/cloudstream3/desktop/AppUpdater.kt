@@ -18,6 +18,8 @@ data class GitHubRelease(
     val body: String?,
     val html_url: String,
     val published_at: String,
+    val prerelease: Boolean = false,
+    val draft: Boolean = false,
 )
 
 object AppUpdater {
@@ -33,7 +35,7 @@ object AppUpdater {
         if (hasChecked && !force) return
         withContext(Dispatchers.IO) {
             try {
-                val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases/latest"
+                val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases?per_page=5"
                 val request = Request.Builder()
                     .url(url)
                     .header("Accept", "application/vnd.github.v3+json")
@@ -41,7 +43,8 @@ object AppUpdater {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         response.body?.string()?.let { bodyString ->
-                            val release = mapper.readValue<GitHubRelease>(bodyString)
+                            val releases = mapper.readValue<List<GitHubRelease>>(bodyString)
+                            val release = releases.firstOrNull { !it.draft } ?: return@use
                             val remoteVersion = release.tag_name.removePrefix("v")
 
                             if (compareVersions(remoteVersion, AppConfig.APP_VERSION) > 0) {

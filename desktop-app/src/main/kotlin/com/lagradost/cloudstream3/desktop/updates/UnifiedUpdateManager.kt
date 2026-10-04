@@ -49,6 +49,8 @@ internal data class GitHubApiRelease(
     val body: String?,
     val html_url: String,
     val published_at: String,
+    val prerelease: Boolean = false,
+    val draft: Boolean = false,
 )
 
 object UnifiedUpdateManager {
@@ -120,7 +122,7 @@ object UnifiedUpdateManager {
 
     suspend fun checkAppUpdate(force: Boolean = false): PendingUpdate? = withContext(Dispatchers.IO) {
         try {
-            val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases/latest"
+            val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases?per_page=5"
             val req = Request.Builder()
                 .url(url)
                 .header("Accept", "application/vnd.github.v3+json")
@@ -129,7 +131,8 @@ object UnifiedUpdateManager {
             client.newCall(req).execute().use { response ->
                 if (response.isSuccessful) {
                     val body = response.body?.string() ?: return@withContext null
-                    val release = mapper.readValue<GitHubApiRelease>(body)
+                    val releases = mapper.readValue<List<GitHubApiRelease>>(body)
+                    val release = releases.firstOrNull { !it.draft } ?: return@withContext null
                     val remoteVersion = release.tag_name.removePrefix("v")
                     val currentVersion = AppConfig.APP_VERSION
 

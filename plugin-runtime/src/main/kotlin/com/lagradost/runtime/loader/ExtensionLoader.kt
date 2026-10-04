@@ -526,8 +526,8 @@ object ExtensionLoader {
                 trusted.add(k)
                 changed = true
             }
-            com.lagradost.common.storage.DesktopDataStore.setPluginTrusted(k, true)
         }
+        com.lagradost.common.storage.DesktopDataStore.setPluginsTrusted(keysToAdd, true)
 
         if (changed) {
             try {
@@ -555,8 +555,8 @@ object ExtensionLoader {
             if (trusted.removeAll { it.equals(k, ignoreCase = true) }) {
                 changed = true
             }
-            com.lagradost.common.storage.DesktopDataStore.setPluginTrusted(k, false)
         }
+        com.lagradost.common.storage.DesktopDataStore.setPluginsTrusted(keysToRemove, false)
 
         if (changed) {
             try {

@@ -20,11 +20,11 @@ class PlayerState {
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
     internal val _isProbing = MutableStateFlow(false)
     val isProbing: StateFlow<Boolean> = _isProbing.asStateFlow()
-    internal val _volume = MutableStateFlow(100f) // 0 to 130 in MPV usually, let's say 0 to 100
+    internal val _volume = MutableStateFlow(com.lagradost.common.storage.DesktopDataStore.getKey<Float>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_VOLUME) ?: 100f)
     val volume: StateFlow<Float> = _volume.asStateFlow()
-    internal val _isMuted = MutableStateFlow(false)
+    internal val _isMuted = MutableStateFlow(com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_MUTED) ?: false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
-    internal val _playbackSpeed = MutableStateFlow(1.0f)
+    internal val _playbackSpeed = MutableStateFlow(com.lagradost.common.storage.DesktopDataStore.getKey<Float>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_PLAYBACK_SPEED) ?: 1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
     internal val _showControls = MutableStateFlow(true)
     val showControls: StateFlow<Boolean> = _showControls.asStateFlow()
@@ -238,11 +238,17 @@ class PlayerState {
         val coerced = volume.coerceIn(0f, maxVol)
         _volume.value = coerced
         engine?.setVolume(coerced.toDouble())
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_VOLUME, coerced)
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
         _playbackSpeed.value = speed
         engine?.setSpeed(speed.toDouble())
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_PLAYBACK_SPEED, speed)
+        }
     }
 
     fun setSpeed(speed: Float) = setPlaybackSpeed(speed)
@@ -407,11 +413,17 @@ class PlayerState {
         val nextMuted = !isMuted.value
         _isMuted.value = nextMuted
         engine?.setMute(nextMuted)
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_MUTED, nextMuted)
+        }
     }
 
     fun setMute(isMuted: Boolean) {
         _isMuted.value = isMuted
         engine?.setMute(isMuted)
+        com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_MUTED, isMuted)
+        }
     }
 
     fun setInterpolation(enabled: Boolean) {
@@ -741,3 +753,6 @@ class PlayerState {
         }
     }
 }
+
+
+

@@ -97,7 +97,7 @@ fun WindowControlsPill(
                     shape = RoundedCornerShape(10.dp),
                     color = theme.SurfaceElevated.copy(alpha = 0.6f),
                     border = BorderStroke(1.dp, theme.Divider.copy(alpha = 0.5f)),
-                    shadowElevation = 8.dp.applyShadowMultiplier(),
+                    shadowElevation = 0.dp,
                 ) {
                 IconButton(
                     onClick = {
@@ -146,7 +146,7 @@ fun WindowControlsPill(
                 shape = RoundedCornerShape(10.dp),
                 color = theme.SurfaceElevated.copy(alpha = 0.6f),
                 border = BorderStroke(1.dp, theme.Divider.copy(alpha = 0.5f)),
-                shadowElevation = 8.dp.applyShadowMultiplier(),
+                shadowElevation = 0.dp,
             ) {
                 if (isIconOnly) {
                     Box(

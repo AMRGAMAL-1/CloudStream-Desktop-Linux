@@ -473,7 +473,7 @@ private fun ExploreHeaderControls(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 10.dp, end = dockPaddingEnd)
+            .padding(start = dockPaddingStart, end = dockPaddingEnd)
             .height(48.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -994,63 +994,63 @@ private fun ExploreShelvesView(
                     }
                 }
             } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    val outerAvailableWidth = this.maxWidth
-                    val isCompactOuter = outerAvailableWidth < 600.dp
-                    val rowPaddingStart = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
-                    val rowPaddingEnd = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+                val shelfPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+                val shelfPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
 
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(start = rowPaddingStart, end = rowPaddingEnd)) {
-                        val availableWidth = this.maxWidth
-                        val isCompact = availableWidth < 600.dp
-                        val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
-    
-                        val optimalItemWidth = if (isCompact) {
-                            if (isLandscape) 160.dp else 115.dp
-                        } else {
-                            val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
-                            val netWidth = (availableWidth - 20.dp).coerceAtLeast(100.dp)
-                            val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
-                            val columns = exactColumns.toInt().coerceAtLeast(1)
-                            ((netWidth + spacingDp) / columns) - spacingDp
-                        }
-    
-                        val rowVerticalPadding = if (isCompact) 4.dp else (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
-                        val innerHorizontalPadding = if (isCompact) 4.dp else 10.dp
-    
-                        val typeLabel = when (shelf.catalog.type.lowercase(java.util.Locale.US)) {
-                            "series", "tv" -> "Series"
-                            "movie" -> "Movies"
-                            "anime" -> "Anime"
-                            "collections" -> "Collections"
-                            else -> ""
-                        }
-                        val withType = if (typeLabel.isNotBlank() && !shelf.catalog.name.contains(typeLabel, ignoreCase = true)) {
-                            "${shelf.catalog.name} ($typeLabel)"
-                        } else {
-                            shelf.catalog.name
-                        }
-                        val rowTitle = if (shelf.catalog.addonName.isNotBlank() && !shelf.catalog.name.contains(shelf.catalog.addonName, ignoreCase = true)) {
-                            "$withType  •  ${shelf.catalog.addonName}"
-                        } else {
-                            withType
-                        }
-    
-                        CategoryRowWithHeader(
-                            modifier = Modifier.fillMaxWidth(),
-                            title = rowTitle,
-                            itemCount = shelf.items.size,
-                            onViewAll = { onViewAll(shelf.catalog) },
-                            rowContentPadding = PaddingValues(
-                                horizontal = innerHorizontalPadding,
-                                vertical = rowVerticalPadding,
-                            ),
-                            headerPadding = PaddingValues(
-                                start = innerHorizontalPadding,
-                                end = innerHorizontalPadding,
-                                top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
-                                bottom = 4.dp,
-                            ),
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = shelfPaddingStart, end = shelfPaddingEnd),
+                ) {
+                    val availableWidth = this.maxWidth
+                    val isCompact = availableWidth < 600.dp
+                    val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
+
+                    val optimalItemWidth = if (isCompact) {
+                        if (isLandscape) 160.dp else 115.dp
+                    } else {
+                        val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
+                        val netWidth = availableWidth - 20.dp
+                        val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
+                        val columns = exactColumns.toInt().coerceAtLeast(1)
+                        ((netWidth + spacingDp) / columns) - spacingDp
+                    }
+
+                    val rowVerticalPadding = if (isCompact) 4.dp else (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
+
+                    val typeLabel = when (shelf.catalog.type.lowercase(java.util.Locale.US)) {
+                        "series", "tv" -> "Series"
+                        "movie" -> "Movies"
+                        "anime" -> "Anime"
+                        "collections" -> "Collections"
+                        else -> ""
+                    }
+                    val withType = if (typeLabel.isNotBlank() && !shelf.catalog.name.contains(typeLabel, ignoreCase = true)) {
+                        "${shelf.catalog.name} ($typeLabel)"
+                    } else {
+                        shelf.catalog.name
+                    }
+                    val rowTitle = if (shelf.catalog.addonName.isNotBlank() && !shelf.catalog.name.contains(shelf.catalog.addonName, ignoreCase = true)) {
+                        "$withType  •  ${shelf.catalog.addonName}"
+                    } else {
+                        withType
+                    }
+
+                    CategoryRowWithHeader(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = rowTitle,
+                        itemCount = shelf.items.size,
+                        onViewAll = { onViewAll(shelf.catalog) },
+                        rowContentPadding = PaddingValues(
+                            horizontal = if (isCompact) 4.dp else 10.dp,
+                            vertical = rowVerticalPadding,
+                        ),
+                        headerPadding = PaddingValues(
+                            start = 10.dp,
+                            end = 10.dp,
+                            top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
+                            bottom = 4.dp,
+                        ),
                         itemSpacing = spacingDp,
                     ) {
                         items(
@@ -1061,21 +1061,21 @@ private fun ExploreShelvesView(
                             val watchHistory = watchHistoryMap[item.id]
                                 ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
-                            ExplorePosterCard(
-                                item = item,
-                                width = optimalItemWidth,
-                                watchHistory = watchHistory,
-                                autoCleanTitles = autoCleanTitles,
-                                isCatalogLandscape = isLandscape,
-                                onClick = { onItemClick(item) },
-                            )
+                            Box(modifier = Modifier.width(optimalItemWidth)) {
+                                ExplorePosterCard(
+                                    item = item,
+                                    watchHistory = watchHistory,
+                                    autoCleanTitles = autoCleanTitles,
+                                    isCatalogLandscape = isLandscape,
+                                    onClick = { onItemClick(item) },
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
 }
 
 @Composable
@@ -1185,45 +1185,45 @@ private fun PlatformShelvesView(
                     }
                 }
             } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    val outerAvailableWidth = this.maxWidth
-                    val isCompactOuter = outerAvailableWidth < 600.dp
-                    val rowPaddingStart = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
-                    val rowPaddingEnd = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+                val shelfPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+                val shelfPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
 
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(start = rowPaddingStart, end = rowPaddingEnd)) {
-                        val availableWidth = this.maxWidth
-                        val isCompact = availableWidth < 600.dp
-                        val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
-    
-                        val optimalItemWidth = if (isCompact) {
-                            if (isLandscape) 160.dp else 115.dp
-                        } else {
-                            val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
-                            val netWidth = (availableWidth - 20.dp).coerceAtLeast(100.dp)
-                            val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
-                            val columns = exactColumns.toInt().coerceAtLeast(1)
-                            ((netWidth + spacingDp) / columns) - spacingDp
-                        }
-    
-                        val rowVerticalPadding = if (isCompact) 4.dp else (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
-                        val innerHorizontalPadding = if (isCompact) 4.dp else 10.dp
-    
-                        CategoryRowWithHeader(
-                            modifier = Modifier.fillMaxWidth(),
-                            title = shelf.catalog.name,
-                            itemCount = shelf.items.size,
-                            onViewAll = { onViewAll(shelf.catalog) },
-                            rowContentPadding = PaddingValues(
-                                horizontal = innerHorizontalPadding,
-                                vertical = rowVerticalPadding,
-                            ),
-                            headerPadding = PaddingValues(
-                                start = innerHorizontalPadding,
-                                end = innerHorizontalPadding,
-                                top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
-                                bottom = 4.dp,
-                            ),
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = shelfPaddingStart, end = shelfPaddingEnd),
+                ) {
+                    val availableWidth = this.maxWidth
+                    val isCompact = availableWidth < 600.dp
+                    val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
+
+                    val optimalItemWidth = if (isCompact) {
+                        if (isLandscape) 160.dp else 115.dp
+                    } else {
+                        val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
+                        val netWidth = availableWidth - 20.dp
+                        val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
+                        val columns = exactColumns.toInt().coerceAtLeast(1)
+                        ((netWidth + spacingDp) / columns) - spacingDp
+                    }
+
+                    val rowVerticalPadding = if (isCompact) 4.dp else (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
+
+                    CategoryRowWithHeader(
+                        modifier = Modifier.fillMaxWidth(),
+                        title = shelf.catalog.name,
+                        itemCount = shelf.items.size,
+                        onViewAll = { onViewAll(shelf.catalog) },
+                        rowContentPadding = PaddingValues(
+                            horizontal = if (isCompact) 4.dp else 10.dp,
+                            vertical = rowVerticalPadding,
+                        ),
+                        headerPadding = PaddingValues(
+                            start = 10.dp,
+                            end = 10.dp,
+                            top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
+                            bottom = 4.dp,
+                        ),
                         itemSpacing = spacingDp,
                     ) {
                         items(
@@ -1234,21 +1234,21 @@ private fun PlatformShelvesView(
                             val watchHistory = watchHistoryMap[item.id]
                                 ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
-                            ExplorePosterCard(
-                                item = item,
-                                width = optimalItemWidth,
-                                watchHistory = watchHistory,
-                                autoCleanTitles = autoCleanTitles,
-                                isCatalogLandscape = isLandscape,
-                                onClick = { onItemClick(item) },
-                            )
+                            Box(modifier = Modifier.width(optimalItemWidth)) {
+                                ExplorePosterCard(
+                                    item = item,
+                                    watchHistory = watchHistory,
+                                    autoCleanTitles = autoCleanTitles,
+                                    isCatalogLandscape = isLandscape,
+                                    onClick = { onItemClick(item) },
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
 }
 
 @Composable
@@ -1529,62 +1529,6 @@ private fun ExploreSearchResultsView(
     onClearSearch: () -> Unit,
     onItemClick: (ExploreItem) -> Unit,
 ) {
-    val dockPosition by AppearanceConfig.dockPosition.collectAsState()
-    
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val outerAvailableWidth = this.maxWidth
-        val isCompactOuter = outerAvailableWidth < 600.dp
-        val rowPaddingStart = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
-        val rowPaddingEnd = if (isCompactOuter) 8.dp else if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
-
-        BoxWithConstraints(modifier = Modifier.fillMaxSize().padding(start = rowPaddingStart, end = rowPaddingEnd)) {
-            val availableWidth = this.maxWidth
-            val isCompact = availableWidth < 600.dp
-            
-            val posterWidthDp by AppearanceConfig.posterWidthDp.collectAsState()
-            val homeSpacingDp by AppearanceConfig.homeSpacingDp.collectAsState()
-            val baseWidth = posterWidthDp.dp
-            val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
-            val netWidth = (availableWidth - 20.dp).coerceAtLeast(100.dp)
-            val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
-            val columns = exactColumns.toInt().coerceAtLeast(1)
-            val optimalItemWidth = if (isCompact) 115.dp else ((netWidth + spacingDp) / columns) - spacingDp
-    
-            ExploreSearchResultsViewContent(
-            searchQuery = searchQuery,
-            searchResults = searchResults,
-            isSearching = isSearching,
-            isShelvesMode = isShelvesMode,
-            drilledCategory = drilledCategory,
-            recommendations = recommendations,
-            watchHistoryMap = watchHistoryMap,
-            autoCleanTitles = autoCleanTitles,
-            optimalItemWidth = optimalItemWidth,
-            onDrillCategory = onDrillCategory,
-            onReturnFromDrill = onReturnFromDrill,
-            onClearSearch = onClearSearch,
-            onItemClick = onItemClick
-        )
-    }
-}
-}
-
-@Composable
-private fun ExploreSearchResultsViewContent(
-    searchQuery: String,
-    searchResults: ExploreSearchResults?,
-    isSearching: Boolean,
-    isShelvesMode: Boolean,
-    drilledCategory: String?,
-    recommendations: List<ExploreItem> = emptyList(),
-    watchHistoryMap: Map<String, WatchHistory>,
-    autoCleanTitles: Boolean,
-    optimalItemWidth: androidx.compose.ui.unit.Dp,
-    onDrillCategory: (String) -> Unit,
-    onReturnFromDrill: () -> Unit,
-    onClearSearch: () -> Unit,
-    onItemClick: (ExploreItem) -> Unit,
-) {
     val theme = LocalDesktopTheme.current
     val posterWidthDp by AppearanceConfig.posterWidthDp.collectAsState()
     val homeSpacingDp by AppearanceConfig.homeSpacingDp.collectAsState()
@@ -1593,8 +1537,13 @@ private fun ExploreSearchResultsViewContent(
 
     val dockPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 24.dp
     val dockPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 24.dp
+
+    val searchRowPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+    val searchRowPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+
     val spacingDp = homeSpacingDp.dp
     val minPosterSize = posterWidthDp.dp
+    val optimalItemWidth = posterWidthDp.dp
     val rowVerticalPadding = (4.dp + (homeVerticalSpacingDp * 0.25f).dp)
 
     val results = searchResults
@@ -1645,7 +1594,7 @@ private fun ExploreSearchResultsViewContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, top = 20.dp, bottom = 12.dp),
+                        .padding(start = dockPaddingStart, end = dockPaddingEnd, top = 20.dp, bottom = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(
@@ -1687,15 +1636,13 @@ private fun ExploreSearchResultsViewContent(
             if (recommendations.isNotEmpty()) {
                 item(key = "search_recommendations_row") {
                     CategoryRowWithHeader(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                         title = "Trending & Recommended",
                         itemCount = recommendations.size,
                         onViewAll = null,
                         rowContentPadding = PaddingValues(
-                            start = 10.dp,
-                            end = 10.dp,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
                             start = 10.dp,
@@ -1713,14 +1660,15 @@ private fun ExploreSearchResultsViewContent(
                             val watchHistory = watchHistoryMap[item.id]
                                 ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
-                            ExplorePosterCard(
-                                item = item,
-                                width = optimalItemWidth,
-                                watchHistory = watchHistory,
-                                autoCleanTitles = autoCleanTitles,
-                                isCatalogLandscape = false,
-                                onClick = { onItemClick(item) },
-                            )
+                            Box(modifier = Modifier.width(optimalItemWidth)) {
+                                ExplorePosterCard(
+                                    item = item,
+                                    watchHistory = watchHistory,
+                                    autoCleanTitles = autoCleanTitles,
+                                    isCatalogLandscape = false,
+                                    onClick = { onItemClick(item) },
+                                )
+                            }
                         }
                     }
                 }
@@ -1741,8 +1689,8 @@ private fun ExploreSearchResultsViewContent(
             columns = GridCells.Adaptive(minSize = minPosterSize),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 10.dp,
-                end = 10.dp,
+                start = dockPaddingStart,
+                end = dockPaddingEnd,
                 top = 104.dp,
                 bottom = 40.dp,
             ),
@@ -1789,8 +1737,8 @@ private fun ExploreSearchResultsViewContent(
             columns = GridCells.Adaptive(minSize = minPosterSize),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 10.dp,
-                end = 10.dp,
+                start = dockPaddingStart,
+                end = dockPaddingEnd,
                 top = 104.dp,
                 bottom = 40.dp,
             ),
@@ -1831,15 +1779,13 @@ private fun ExploreSearchResultsViewContent(
             val movies = results.movies
             item(key = "search_row_movies") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "Movies",
                     itemCount = movies.size,
                     onViewAll = { onDrillCategory("Movies") },
                     rowContentPadding = PaddingValues(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
                         start = 10.dp,
@@ -1857,14 +1803,15 @@ private fun ExploreSearchResultsViewContent(
                         val watchHistory = watchHistoryMap[item.id]
                             ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
+                        Box(modifier = Modifier.width(optimalItemWidth)) {
                             ExplorePosterCard(
                                 item = item,
-                                width = optimalItemWidth,
                                 watchHistory = watchHistory,
                                 autoCleanTitles = autoCleanTitles,
                                 isCatalogLandscape = false,
                                 onClick = { onItemClick(item) },
                             )
+                        }
                     }
                 }
             }
@@ -1875,15 +1822,13 @@ private fun ExploreSearchResultsViewContent(
             val series = results.series
             item(key = "search_row_series") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "TV Series",
                     itemCount = series.size,
                     onViewAll = { onDrillCategory("TV Series") },
                     rowContentPadding = PaddingValues(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
                         start = 10.dp,
@@ -1901,14 +1846,15 @@ private fun ExploreSearchResultsViewContent(
                         val watchHistory = watchHistoryMap[item.id]
                             ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
+                        Box(modifier = Modifier.width(optimalItemWidth)) {
                             ExplorePosterCard(
                                 item = item,
-                                width = optimalItemWidth,
                                 watchHistory = watchHistory,
                                 autoCleanTitles = autoCleanTitles,
                                 isCatalogLandscape = false,
                                 onClick = { onItemClick(item) },
                             )
+                        }
                     }
                 }
             }
@@ -1919,15 +1865,13 @@ private fun ExploreSearchResultsViewContent(
             val anime = results.anime
             item(key = "search_row_anime") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "Anime",
                     itemCount = anime.size,
                     onViewAll = { onDrillCategory("Anime") },
                     rowContentPadding = PaddingValues(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
                         start = 10.dp,
@@ -1945,14 +1889,15 @@ private fun ExploreSearchResultsViewContent(
                         val watchHistory = watchHistoryMap[item.id]
                             ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
+                        Box(modifier = Modifier.width(optimalItemWidth)) {
                             ExplorePosterCard(
                                 item = item,
-                                width = optimalItemWidth,
                                 watchHistory = watchHistory,
                                 autoCleanTitles = autoCleanTitles,
                                 isCatalogLandscape = false,
                                 onClick = { onItemClick(item) },
                             )
+                        }
                     }
                 }
             }
@@ -1963,15 +1908,13 @@ private fun ExploreSearchResultsViewContent(
             if (group.items.isNotEmpty()) {
                 item(key = "search_row_addon_${group.addonName}") {
                     CategoryRowWithHeader(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                         title = group.addonName,
                         itemCount = group.items.size,
                         onViewAll = { onDrillCategory(group.addonName) },
                         rowContentPadding = PaddingValues(
-                            start = 10.dp,
-                            end = 10.dp,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
                             start = 10.dp,
@@ -1989,14 +1932,15 @@ private fun ExploreSearchResultsViewContent(
                             val watchHistory = watchHistoryMap[item.id]
                                 ?: watchHistoryMap[DesktopDataStore.watchHistoryId("Stremio", "stremio://${item.type}/${item.id}")]
 
+                            Box(modifier = Modifier.width(optimalItemWidth)) {
                                 ExplorePosterCard(
                                     item = item,
-                                    width = optimalItemWidth,
                                     watchHistory = watchHistory,
                                     autoCleanTitles = autoCleanTitles,
                                     isCatalogLandscape = false,
                                     onClick = { onItemClick(item) },
                                 )
+                            }
                         }
                     }
                 }
@@ -2105,7 +2049,6 @@ private fun ExploreGridView(
 @Composable
 private fun ExplorePosterCard(
     item: ExploreItem,
-    width: androidx.compose.ui.unit.Dp? = null,
     watchHistory: WatchHistory? = null,
     autoCleanTitles: Boolean = true,
     isCatalogLandscape: Boolean = false,
@@ -2147,7 +2090,7 @@ private fun ExplorePosterCard(
     val effectiveAspectRatio = if (isLandscape) 16f / 9f else 2f / 3f
 
     Column(
-        modifier = if (width != null) Modifier.width(width) else Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Box {
             // Ambient primary glow bloom on hover (matching Home's PosterCard)
@@ -2177,30 +2120,12 @@ private fun ExplorePosterCard(
                         .aspectRatio(effectiveAspectRatio)
                         .posterDepthEffect(shape, enabled = posterDepthEffectEnabled),
                 ) {
-                    val posterModel = item.posterUrl ?: item.backgroundUrl
-                    if (posterModel != null) {
-                        AsyncImage(
-                            model = posterModel,
-                            contentDescription = item.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        // Blank poster placeholder — matches PosterCard's no-image fallback
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(LocalDesktopTheme.current.SurfaceElevated),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = item.name.take(2).uppercase(),
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
+                    AsyncImage(
+                        model = item.posterUrl ?: item.backgroundUrl,
+                        contentDescription = item.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
 
                     // Dark scrim on hover
                     androidx.compose.animation.AnimatedVisibility(
@@ -2297,13 +2222,9 @@ private fun ExplorePosterCard(
                             }
                         } ?: Spacer(modifier = Modifier.width(1.dp))
 
-                        // Top Right: Format tags (unified capsule)
+                        // Top Right: Format tags if detected
                         if (sanitized.hasSub || sanitized.hasDub) {
-                            DesktopBadgeComponents.UnifiedMetadataCapsule(
-                                hasSub = sanitized.hasSub,
-                                hasDub = sanitized.hasDub,
-                                quality = null // ExploreItem doesn't supply quality text
-                            )
+                            DesktopBadgeComponents.SubDubBadge(hasSub = sanitized.hasSub, hasDub = sanitized.hasDub)
                         }
                     }
 
@@ -2803,7 +2724,6 @@ private fun EmptyCatalogState(
         }
     }
 }
-
 
 
 

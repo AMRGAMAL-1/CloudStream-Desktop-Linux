@@ -67,7 +67,10 @@ fun HomeManagementDialog(
     var showHybridTorrentDialog by remember { mutableStateOf(false) }
 
     fun fuzzyMatchIcon(providerName: String): String? {
-        val pName = providerName.lowercase().replace(Regex("[^a-z0-9]"), "").replace("provider", "").replace("plugin", "")
+        val cleanName = if (providerName.contains("::")) providerName.substringAfter("::") else providerName
+        pluginIcons[cleanName]?.let { return it }
+        pluginIcons[providerName]?.let { return it }
+        val pName = cleanName.lowercase().replace(Regex("[^a-z0-9]"), "").replace("provider", "").replace("plugin", "")
         return pluginIcons.entries.firstOrNull { (k, _) ->
             val kName = k.lowercase().replace(Regex("[^a-z0-9]"), "").replace("provider", "").replace("plugin", "")
             if (kName.length < 3) return@firstOrNull false
