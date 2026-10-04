@@ -47,10 +47,12 @@ object DesktopRepositoryManager {
 
     fun getPluginIcon(providerName: String?): String? {
         if (providerName.isNullOrBlank()) return null
+        val clean = if (providerName.contains("::")) providerName.substringAfter("::") else providerName
         val icons = _remotePluginIcons.value
+        icons[clean]?.let { return it }
         icons[providerName]?.let { return it }
         val sanitizeRegex = Regex("[^a-zA-Z0-9]")
-        val pName = providerName.lowercase().replace(sanitizeRegex, "").replace("provider", "").replace("plugin", "")
+        val pName = clean.lowercase().replace(sanitizeRegex, "").replace("provider", "").replace("plugin", "")
         return icons.entries.firstOrNull { (k, _) ->
             val kName = k.lowercase().replace(sanitizeRegex, "").replace("provider", "").replace("plugin", "")
             if (kName.length < 3) return@firstOrNull false
@@ -107,8 +109,22 @@ object DesktopRepositoryManager {
                 )
                 pluginsCache.putAll(data)
             }
+            val cachedIcons = mutableMapOf<String, String>()
+            pluginsCache.values.flatten().forEach { plugin ->
+                val icon = plugin.iconUrl
+                if (!icon.isNullOrEmpty()) {
+                    cachedIcons[plugin.internalName] = icon
+                    cachedIcons[plugin.name] = icon
+                }
+            }
+            _remotePluginIcons.value = cachedIcons + scanLocalPluginIcons()
+            _syncGeneration.update { it + 1 }
         } catch (e: Exception) {
             AppLogger.e("Failed to load repository caches from disk", e)
+            try {
+                _remotePluginIcons.value = scanLocalPluginIcons()
+                _syncGeneration.update { it + 1 }
+            } catch (_: Exception) {}
         }
     }
 

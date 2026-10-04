@@ -994,19 +994,23 @@ private fun ExploreShelvesView(
                     }
                 }
             } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val shelfPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+                val shelfPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = shelfPaddingStart, end = shelfPaddingEnd),
+                ) {
                     val availableWidth = this.maxWidth
                     val isCompact = availableWidth < 600.dp
                     val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
-                    val rowPaddingStart = if (isCompact) 8.dp else if (dockPosition == DockPosition.LEFT) 88.dp else 24.dp
-                    val rowPaddingEnd = if (isCompact) 8.dp else if (dockPosition == DockPosition.RIGHT) 88.dp else 24.dp
-                    val totalHorizontalPadding = rowPaddingStart + rowPaddingEnd
 
                     val optimalItemWidth = if (isCompact) {
                         if (isLandscape) 160.dp else 115.dp
                     } else {
                         val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
-                        val netWidth = (availableWidth - totalHorizontalPadding).coerceAtLeast(100.dp)
+                        val netWidth = availableWidth - 20.dp
                         val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
                         val columns = exactColumns.toInt().coerceAtLeast(1)
                         ((netWidth + spacingDp) / columns) - spacingDp
@@ -1038,14 +1042,12 @@ private fun ExploreShelvesView(
                         itemCount = shelf.items.size,
                         onViewAll = { onViewAll(shelf.catalog) },
                         rowContentPadding = PaddingValues(
-                            start = rowPaddingStart,
-                            end = rowPaddingEnd,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = if (isCompact) 4.dp else 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
-                            start = rowPaddingStart,
-                            end = rowPaddingEnd,
+                            start = 10.dp,
+                            end = 10.dp,
                             top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                             bottom = 4.dp,
                         ),
@@ -1183,19 +1185,23 @@ private fun PlatformShelvesView(
                     }
                 }
             } else {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val shelfPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+                val shelfPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = shelfPaddingStart, end = shelfPaddingEnd),
+                ) {
                     val availableWidth = this.maxWidth
                     val isCompact = availableWidth < 600.dp
                     val spacingDp = if (isCompact) 8.dp else homeSpacingDp.dp
-                    val rowPaddingStart = if (isCompact) 8.dp else if (dockPosition == DockPosition.LEFT) 88.dp else 24.dp
-                    val rowPaddingEnd = if (isCompact) 8.dp else if (dockPosition == DockPosition.RIGHT) 88.dp else 24.dp
-                    val totalHorizontalPadding = rowPaddingStart + rowPaddingEnd
 
                     val optimalItemWidth = if (isCompact) {
                         if (isLandscape) 160.dp else 115.dp
                     } else {
                         val baseWidth = if (isLandscape) (posterWidthDp.dp * 1.45f) else posterWidthDp.dp
-                        val netWidth = (availableWidth - totalHorizontalPadding).coerceAtLeast(100.dp)
+                        val netWidth = availableWidth - 20.dp
                         val exactColumns = (netWidth + spacingDp) / (baseWidth + spacingDp)
                         val columns = exactColumns.toInt().coerceAtLeast(1)
                         ((netWidth + spacingDp) / columns) - spacingDp
@@ -1209,14 +1215,12 @@ private fun PlatformShelvesView(
                         itemCount = shelf.items.size,
                         onViewAll = { onViewAll(shelf.catalog) },
                         rowContentPadding = PaddingValues(
-                            start = rowPaddingStart,
-                            end = rowPaddingEnd,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = if (isCompact) 4.dp else 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
-                            start = rowPaddingStart,
-                            end = rowPaddingEnd,
+                            start = 10.dp,
+                            end = 10.dp,
                             top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                             bottom = 4.dp,
                         ),
@@ -1533,6 +1537,10 @@ private fun ExploreSearchResultsView(
 
     val dockPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 24.dp
     val dockPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 24.dp
+
+    val searchRowPaddingStart = if (dockPosition == DockPosition.LEFT) 88.dp else 22.dp
+    val searchRowPaddingEnd = if (dockPosition == DockPosition.RIGHT) 88.dp else 22.dp
+
     val spacingDp = homeSpacingDp.dp
     val minPosterSize = posterWidthDp.dp
     val optimalItemWidth = posterWidthDp.dp
@@ -1628,19 +1636,17 @@ private fun ExploreSearchResultsView(
             if (recommendations.isNotEmpty()) {
                 item(key = "search_recommendations_row") {
                     CategoryRowWithHeader(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                         title = "Trending & Recommended",
                         itemCount = recommendations.size,
                         onViewAll = null,
                         rowContentPadding = PaddingValues(
-                            start = dockPaddingStart,
-                            end = dockPaddingEnd,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
-                            start = dockPaddingStart,
-                            end = dockPaddingEnd,
+                            start = 10.dp,
+                            end = 10.dp,
                             top = 12.dp,
                             bottom = 4.dp,
                         ),
@@ -1773,19 +1779,17 @@ private fun ExploreSearchResultsView(
             val movies = results.movies
             item(key = "search_row_movies") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "Movies",
                     itemCount = movies.size,
                     onViewAll = { onDrillCategory("Movies") },
                     rowContentPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
+                        start = 10.dp,
+                        end = 10.dp,
                         top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                         bottom = 4.dp,
                     ),
@@ -1818,19 +1822,17 @@ private fun ExploreSearchResultsView(
             val series = results.series
             item(key = "search_row_series") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "TV Series",
                     itemCount = series.size,
                     onViewAll = { onDrillCategory("TV Series") },
                     rowContentPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
+                        start = 10.dp,
+                        end = 10.dp,
                         top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                         bottom = 4.dp,
                     ),
@@ -1863,19 +1865,17 @@ private fun ExploreSearchResultsView(
             val anime = results.anime
             item(key = "search_row_anime") {
                 CategoryRowWithHeader(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                     title = "Anime",
                     itemCount = anime.size,
                     onViewAll = { onDrillCategory("Anime") },
                     rowContentPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
-                        top = rowVerticalPadding,
-                        bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                     ),
                     headerPadding = PaddingValues(
-                        start = dockPaddingStart,
-                        end = dockPaddingEnd,
+                        start = 10.dp,
+                        end = 10.dp,
                         top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                         bottom = 4.dp,
                     ),
@@ -1908,19 +1908,17 @@ private fun ExploreSearchResultsView(
             if (group.items.isNotEmpty()) {
                 item(key = "search_row_addon_${group.addonName}") {
                     CategoryRowWithHeader(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(start = searchRowPaddingStart, end = searchRowPaddingEnd),
                         title = group.addonName,
                         itemCount = group.items.size,
                         onViewAll = { onDrillCategory(group.addonName) },
                         rowContentPadding = PaddingValues(
-                            start = dockPaddingStart,
-                            end = dockPaddingEnd,
-                            top = rowVerticalPadding,
-                            bottom = rowVerticalPadding,
+                            horizontal = 10.dp,
+                            vertical = rowVerticalPadding,
                         ),
                         headerPadding = PaddingValues(
-                            start = dockPaddingStart,
-                            end = dockPaddingEnd,
+                            start = 10.dp,
+                            end = 10.dp,
                             top = (4.dp + (homeVerticalSpacingDp * 0.35f).dp),
                             bottom = 4.dp,
                         ),
