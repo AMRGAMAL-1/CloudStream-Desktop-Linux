@@ -7,6 +7,7 @@ import androidx.compose.ui.awt.SwingPanel
 import com.lagradost.cloudstream3.desktop.player.ipc.PlayerInboundEvent
 import com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.common.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,7 +72,49 @@ fun ComposeNativeWebPlayer(
     reloadKey: Int = 0,
     onRetryPlayback: (() -> Unit)? = null,
     parentId: String? = null,
+    backend: String = "mpv",
 ) {
+    if (!NativePlayerBridge.isAvailable()) {
+        LaunchedEffect(Unit) {
+            onPlaybackError(NativePlayerBridge.unavailableReason())
+        }
+        return
+    }
+
+    if (backend.equals("vlc", ignoreCase = true)) {
+        ComposeNativeVlcPlayer(
+            modifier = modifier,
+            link = link,
+            title = title,
+            backdropUrl = backdropUrl,
+            logoUrl = logoUrl,
+            seriesPosterUrl = seriesPosterUrl,
+            links = links,
+            currentLinkIndex = currentLinkIndex,
+            episodes = episodes,
+            currentEpisodeId = currentEpisodeId,
+            currentEpisodeNumber = currentEpisodeNumber,
+            currentSeasonNumber = currentSeasonNumber,
+            subtitles = subtitles,
+            startPositionMs = startPositionMs,
+            onPlaybackReady = onPlaybackReady,
+            onPlaybackError = onPlaybackError,
+            onFinished = onFinished,
+            onPositionChange = onPositionChange,
+            onCloseRequest = onCloseRequest,
+            isExiting = isExiting,
+            onSkipScraping = onSkipScraping,
+            onFullscreenToggle = onFullscreenToggle,
+            playerState = playerState,
+            onLinkChange = onLinkChange,
+            onEpisodeChange = onEpisodeChange,
+            onNextEpisode = onNextEpisode,
+            onReplayEpisode = onReplayEpisode,
+            reloadKey = reloadKey,
+        )
+        return
+    }
+
     val scope = rememberCoroutineScope()
     val persistentSubtitles = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     val window = com.lagradost.cloudstream3.desktop.ui.LocalComposeWindow.current
@@ -90,6 +133,7 @@ fun ComposeNativeWebPlayer(
     val currentOnPositionChange by rememberUpdatedState(onPositionChange)
     val currentOnCloseRequest by rememberUpdatedState(onCloseRequest)
     val currentOnFullscreenToggle by rememberUpdatedState(onFullscreenToggle)
+    val linuxNativeSurfaceAvailable = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
 
     val watchHistoryList by produceState<List<com.lagradost.common.storage.WatchHistory>>(initialValue = emptyList(), parentId) {
         if (parentId != null) {
@@ -140,82 +184,6 @@ fun ComposeNativeWebPlayer(
     val resolvedImdbId = remember(parentId, currentEpisodeId) {
         parentId?.takeIf { it.startsWith("tt", ignoreCase = true) }
             ?: currentEpisodeId?.takeIf { it.startsWith("tt", ignoreCase = true) }?.substringBefore(":")
-    }
-
-    var autoFetchedSubtitleTracks by remember { mutableStateOf<List<LazyTrackPayload>>(emptyList()) }
-    var lastAutoFetchKey by remember { mutableStateOf<String?>(null) }
-
-    val currentSubFetchKey = remember(title, parentId, currentSeasonNumber, currentEpisodeNumber, episodes, currentEpisodeId) {
-        val ep = episodes.find { it.data == currentEpisodeId }
-        val s = currentSeasonNumber ?: ep?.season
-        val e = currentEpisodeNumber ?: ep?.episode
-        "${parentId ?: "none"}|${title?.trim() ?: "none"}|$s|$e"
-    }
-
-    LaunchedEffect(currentSubFetchKey, isUiReady) {
-        if (!isUiReady || currentSubFetchKey == lastAutoFetchKey) return@LaunchedEffect
-        lastAutoFetchKey = currentSubFetchKey
-
-        val cleanTitle = title?.trim()?.ifBlank { null } ?: return@LaunchedEffect
-        val ep = episodes.find { it.data == currentEpisodeId }
-        val s = currentSeasonNumber ?: ep?.season
-        val e = currentEpisodeNumber ?: ep?.episode
-
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-fetching subtitles for '$cleanTitle' (s=$s, e=$e, imdb=$resolvedImdbId)")
-                val prefLang = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_PREFERRED_SUB_LANG) ?: "en"
-
-                val results = kotlinx.coroutines.withTimeoutOrNull(6000L) {
-                    SubtitleExtractionService.searchSubtitles(
-                        query = cleanTitle,
-                        lang = null,
-                        season = s,
-                        episode = e,
-                        imdbId = resolvedImdbId,
-                    )
-                } ?: emptyList()
-
-                if (results.isNotEmpty()) {
-                    val payloads = results.mapNotNull { map ->
-                        val dataUrl = map["data"] as? String ?: return@mapNotNull null
-                        val rawNameRaw = map["name"] as? String ?: "Subtitle"
-                        val rawName = rawNameRaw.replace(Regex("""[\r\n]+"""), " | ").trim().let { if (it.length > 150) it.take(147) + "..." else it }
-                        val lang = map["lang"] as? String ?: "en"
-                        val source = map["source"] as? String ?: "Addon"
-                        val cleanLabel = if (rawName.startsWith("[$source]")) rawName else "[$source] $rawName"
-                        LazyTrackPayload(
-                            url = dataUrl,
-                            name = cleanLabel,
-                            language = lang,
-                        )
-                    }
-                    autoFetchedSubtitleTracks = payloads
-                    com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-fetched ${payloads.size} external subtitle tracks")
-
-                    // Smart auto-selection: only if container does not already have an active subtitle track
-                    val hasActiveSub = subtitleTracks.any { it.isSelected }
-                    val autoSubEnabled = com.lagradost.common.storage.DesktopDataStore.getKey<Boolean>("cs_desktop_auto_select_subtitles") ?: true
-                    if (!hasActiveSub && autoSubEnabled) {
-                        val match = payloads.firstOrNull {
-                            com.lagradost.cloudstream3.desktop.subtitles.LanguageNormalizer.isMatch(prefLang, it.language)
-                        }
-                        if (match != null) {
-                            com.lagradost.common.logging.AppLogger.i("Player:Web", "Auto-selecting preferred subtitle track: ${match.name}")
-                            playerState?.loadLazySubtitleTrack(
-                                com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(
-                                    url = match.url,
-                                    name = match.name,
-                                    language = match.language ?: prefLang,
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (t: Throwable) {
-                com.lagradost.common.logging.AppLogger.w("Player:Web", "Failed auto-fetching subtitles: ${t.message}")
-            }
-        }
     }
 
     LaunchedEffect(proxyVideoTracks, link) {
@@ -383,10 +351,10 @@ fun ComposeNativeWebPlayer(
                 lazyAudioTracks = proxyAudioTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
                 },
-                lazySubTracks = (proxySubtitleTracks.map {
+                lazySubTracks = proxySubtitleTracks.map {
                     val safeName = it.name.replace(Regex("""[\r\n]+"""), " | ").trim().let { name -> if (name.length > 150) name.take(147) + "..." else name }
                     LazyTrackPayload(it.url, safeName, it.language)
-                } + autoFetchedSubtitleTracks).distinctBy { it.url },
+                }.distinctBy { it.url },
                 lazyVideoTracks = proxyVideoTracks.map {
                     LazyTrackPayload(it.url, it.name, it.language)
                 },
@@ -447,7 +415,7 @@ fun ComposeNativeWebPlayer(
         }
     }
 
-    LaunchedEffect(isUiReady, isLoading, links, currentLinkIndex, episodes, currentEpisodeId, currentEpisodeNumber, currentSeasonNumber, audioTracks, subtitleTracks, videoTracks, chapters, currentChapterIndex, proxyAudioTracks, proxySubtitleTracks, proxyVideoTracks, autoFetchedSubtitleTracks, loadingStatusText, isProbing, isScraping, failedLinks, backdropUrl, logoUrl, title, activeShader, activeLazyVideoTrackUrl, activeLazyAudioTrackUrl, activeSkipInterval, skipIntervals, resolution, plot, year, tags, contentRating, rating, activeSubtitleOverrideEnabled, isLive, isAudioOnlyStream, isAudioMode, actors, isAnime, isExhausted, exhaustionReason, exhaustionDiagnostics, watchHistoryList) {
+    LaunchedEffect(isUiReady, isLoading, links, currentLinkIndex, episodes, currentEpisodeId, currentEpisodeNumber, currentSeasonNumber, audioTracks, subtitleTracks, videoTracks, chapters, currentChapterIndex, proxyAudioTracks, proxySubtitleTracks, proxyVideoTracks, loadingStatusText, isProbing, isScraping, failedLinks, backdropUrl, logoUrl, title, activeShader, activeLazyVideoTrackUrl, activeLazyAudioTrackUrl, activeSkipInterval, skipIntervals, resolution, plot, year, tags, contentRating, rating, activeSubtitleOverrideEnabled, isLive, isAudioOnlyStream, isAudioMode, actors, isAnime, isExhausted, exhaustionReason, exhaustionDiagnostics, watchHistoryList) {
         if (isUiReady) {
             if (isScraping && !isProbing && !isExhausted && !isLoading) {
                 kotlinx.coroutines.delay(250L)
@@ -573,7 +541,12 @@ fun ComposeNativeWebPlayer(
         startPositionMs = startPositionMs,
         shouldPauseForResume = shouldPauseForResume,
         onPlaybackReady = {
-            com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.executeScript("if (window.__dismissProbingOverlay) window.__dismissProbingOverlay();")
+            // The probing overlay is dismissed only after MPV confirms a decoded frame.
+            // Show the normal player controls once the cross-fade has completed so a
+            // fast link still presents the same initial controls as the original UI.
+            com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.executeScript(
+                "if (window.__dismissProbingOverlay) window.__dismissProbingOverlay(); setTimeout(function(){ if (window.showControls) window.showControls(null); }, 500);"
+            )
             currentOnPlaybackReady()
         },
         onPlaybackError = currentOnPlaybackError,
@@ -593,10 +566,25 @@ fun ComposeNativeWebPlayer(
             }
         },
         onPreInitialize = { handle, canvasWid, w, h ->
+            val isWindowsHost = System.getProperty("os.name", "").contains("win", ignoreCase = true)
             val childHwnd = NativePlayerBridge.initWebView(canvasWid, w, h)
-            MpvLibrary.INSTANCE.mpv_set_option_string(handle, "wid", childHwnd.toString())
-            MpvLibrary.INSTANCE.mpv_set_option_string(handle, "vo", "gpu")
-            val gpuApi = com.lagradost.common.storage.DesktopDataStore.getKey<String>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_GPU_API) ?: "d3d11"
+            if (isWindowsHost) {
+                MpvLibrary.INSTANCE.mpv_set_option_string(handle, "wid", childHwnd.toString())
+            } else if (childHwnd == 0L) {
+                linuxNativeSurfaceAvailable.set(false)
+                AppLogger.e(
+                    "ComposeNativeWebPlayer",
+                    "Linux player surface is unavailable; an X11-compatible DISPLAY is required for the embedded GTK bridge",
+                )
+            }
+            // Linux is attached to the GTK MPV Render API. "gpu" creates a
+            // separate mpv window; "libmpv" renders into GtkGLArea instead.
+            MpvLibrary.INSTANCE.mpv_set_option_string(
+                handle,
+                "vo",
+                if (isWindowsHost) "gpu" else "libmpv"
+            )
+            val gpuApi = if (isWindowsHost) PlayerConfig.configuredGpuApi() else "opengl"
             MpvLibrary.INSTANCE.mpv_set_option_string(handle, "gpu-api", gpuApi)
 
             val delaySec = com.lagradost.common.storage.DesktopDataStore.getKey<Float>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_DELAY) ?: 0f
@@ -608,6 +596,19 @@ fun ComposeNativeWebPlayer(
             }
         },
         onPostInitialize = { handle ->
+            if (!System.getProperty("os.name", "").contains("win", ignoreCase = true)) {
+                if (!linuxNativeSurfaceAvailable.get()) {
+                    throw IllegalStateException(
+                        "Linux embedded playback requires an X11-compatible DISPLAY. Start XWayland for Wayland sessions.",
+                    )
+                }
+                val renderAttached = NativePlayerBridge.attachMpvRender(com.sun.jna.Pointer.nativeValue(handle))
+                if (!renderAttached) {
+                    throw IllegalStateException(
+                        "Linux MPV Render API could not attach to the embedded OpenGL surface. Check GTK/OpenGL drivers.",
+                    )
+                }
+            }
             val webView2DataDir = File(System.getProperty("java.io.tmpdir"), "CloudStreamWebView2")
             webView2DataDir.mkdirs()
             val tempFile = File(webView2DataDir, "cloudstream_controls.html")
@@ -636,7 +637,11 @@ fun ComposeNativeWebPlayer(
             val initialSubtitleStyle = if (initialSubtitle.isNotEmpty()) "display: block;" else "display: none;"
 
             val dynamicFontsCss = com.lagradost.cloudstream3.desktop.ui.theme.CustomFontManager.getDynamicFontFaceCss()
-            val finalCss = if (dynamicFontsCss.isNotEmpty()) "$dynamicFontsCss\n$cssContent" else cssContent
+            val finalCss = listOf(
+                com.lagradost.cloudstream3.desktop.ui.PipState.unsupportedControlsCss,
+                dynamicFontsCss,
+                cssContent,
+            ).filter { it.isNotBlank() }.joinToString("\n")
 
             val htmlContent = htmlTemplate
                 .replace("/* CSS_INJECT */", finalCss)
@@ -675,6 +680,7 @@ fun ComposeNativeWebPlayer(
                             com.lagradost.common.logging.AppLogger.d("Player:Web", event.message)
                         }
                         is PlayerInboundEvent.UiReady -> {
+                            com.lagradost.common.logging.AppLogger.i("Player:Web", "Embedded player UI ready")
                             isUiReady = true
                             pushMetadataToWebView()
                             pushSyncStateToWebView()
@@ -841,10 +847,12 @@ fun ComposeNativeWebPlayer(
                             playerState?.skipCurrentInterval()
                         }
                         is PlayerInboundEvent.SeekTo -> {
-                            playerState?.notifySeekTo(event.positionMs.toLong())
+                            // The WebKit bridge delivers the seek request directly
+                            // to Kotlin; MPV still needs the actual seek command.
+                            playerState?.seekTo(event.positionMs.toLong())
                         }
                         is PlayerInboundEvent.SeekBy -> {
-                            playerState?.notifySeekBy(event.deltaMs.toLong())
+                            playerState?.seekBy(event.deltaMs.toLong())
                         }
                         is PlayerInboundEvent.SeekLive -> {
                             playerState?.seekLive()
@@ -915,44 +923,65 @@ fun ComposeNativeWebPlayer(
                             playerState?.showToast("Screenshot saved to $dirName")
                         }
                         is PlayerInboundEvent.TogglePip -> {
-                            val nextPip = !com.lagradost.cloudstream3.desktop.ui.PipState.isPipMode.value
-                            com.lagradost.cloudstream3.desktop.ui.PipState.setPipMode(nextPip)
-                            NativePlayerBridge.executeScript("if(window.setPipUi) window.setPipUi($nextPip);")
+                            if (com.lagradost.cloudstream3.desktop.ui.PipState.isSupported) {
+                                val nextPip = !com.lagradost.cloudstream3.desktop.ui.PipState.isPipMode.value
+                                com.lagradost.cloudstream3.desktop.ui.PipState.setPipMode(nextPip)
+                                NativePlayerBridge.executeScript("if(window.setPipUi) window.setPipUi($nextPip);")
+                            }
                         }
                         is PlayerInboundEvent.StartWindowDrag -> {
                             val hwnd = com.sun.jna.Native.getComponentID(window)
-                            val hWin = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer(hwnd))
-                            com.lagradost.cloudstream3.desktop.init.ExtUser32.INSTANCE.ReleaseCapture()
-                            com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
-                                hWin,
-                                0x0112,
-                                com.sun.jna.platform.win32.WinDef.WPARAM(0xF012),
-                                com.sun.jna.platform.win32.WinDef.LPARAM(0),
-                            )
+                            if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                                NativePlayerBridge.startWindowDrag(hwnd)
+                            } else {
+                                val hWin = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer(hwnd))
+                                com.lagradost.cloudstream3.desktop.init.ExtUser32.INSTANCE.ReleaseCapture()
+                                com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
+                                    hWin,
+                                    0x0112,
+                                    com.sun.jna.platform.win32.WinDef.WPARAM(0xF012),
+                                    com.sun.jna.platform.win32.WinDef.LPARAM(0),
+                                )
+                            }
                         }
                         is PlayerInboundEvent.StartWindowResize -> {
                             val hwnd = com.sun.jna.Native.getComponentID(window)
-                            val hWin = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer(hwnd))
-                            com.lagradost.cloudstream3.desktop.init.ExtUser32.INSTANCE.ReleaseCapture()
+                            if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                                val direction = when (event.direction) {
+                                    "top-left" -> 0
+                                    "top" -> 1
+                                    "top-right" -> 2
+                                    "right" -> 3
+                                    "bottom-right" -> 4
+                                    "bottom" -> 5
+                                    "bottom-left" -> 6
+                                    "left" -> 7
+                                    else -> 8
+                                }
+                                NativePlayerBridge.startWindowResize(hwnd, direction)
+                            } else {
+                                val hWin = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer(hwnd))
+                                com.lagradost.cloudstream3.desktop.init.ExtUser32.INSTANCE.ReleaseCapture()
 
-                            val hitTest = when (event.direction) {
-                                "left" -> 1
-                                "right" -> 2
-                                "top" -> 3
-                                "top-left" -> 4
-                                "top-right" -> 5
-                                "bottom" -> 6
-                                "bottom-left" -> 7
-                                "bottom-right" -> 8
-                                else -> 8
+                                val hitTest = when (event.direction) {
+                                    "left" -> 1
+                                    "right" -> 2
+                                    "top" -> 3
+                                    "top-left" -> 4
+                                    "top-right" -> 5
+                                    "bottom" -> 6
+                                    "bottom-left" -> 7
+                                    "bottom-right" -> 8
+                                    else -> 8
+                                }
+
+                                com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
+                                    hWin,
+                                    0x0112,
+                                    com.sun.jna.platform.win32.WinDef.WPARAM((0xF000 + hitTest).toLong()),
+                                    com.sun.jna.platform.win32.WinDef.LPARAM(0),
+                                )
                             }
-
-                            com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
-                                hWin,
-                                0x0112,
-                                com.sun.jna.platform.win32.WinDef.WPARAM((0xF000 + hitTest).toLong()),
-                                com.sun.jna.platform.win32.WinDef.LPARAM(0),
-                            )
                         }
                         is PlayerInboundEvent.ToggleFullscreen -> {
                             scope.launch(kotlinx.coroutines.Dispatchers.Main) {
@@ -1030,11 +1059,7 @@ fun ComposeNativeWebPlayer(
                             val proxyTrack = com.lagradost.player.impl.proxy.LocalStreamProxyState.lazySubtitleTracks.value.find { it.url == event.url }
                             val lazyTrack = if (proxyTrack != null) {
                                 com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(proxyTrack.url, proxyTrack.name, proxyTrack.language)
-                            } else {
-                                autoFetchedSubtitleTracks.find { it.url == event.url }?.let {
-                                    com.lagradost.cloudstream3.desktop.ui.screens.player.PlayerState.LazyTrack(it.url, it.name, it.language ?: "en")
-                                }
-                            }
+                            } else null
                             if (lazyTrack != null) {
                                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                     playerState?.loadLazySubtitleTrack(lazyTrack)
@@ -1281,8 +1306,12 @@ fun ComposeNativeWebPlayer(
                     }
                 }
                 videoCanvas.addComponentListener(componentListener)
-                // Force initial layout push so WebView isn't hidden until the first resize
-                NativePlayerBridge.resizeWebView(videoCanvas.width, videoCanvas.height)
+                // Use the established Canvas attach path. The native bridge
+                // receives the first usable size here and owns the overlay
+                // reveal.
+                if (videoCanvas.width > 1 && videoCanvas.height > 1) {
+                    NativePlayerBridge.resizeWebView(videoCanvas.width, videoCanvas.height)
+                }
                 onDispose {
                     videoCanvas.isVisible = false
                     videoCanvas.removeComponentListener(componentListener)
@@ -1294,15 +1323,25 @@ fun ComposeNativeWebPlayer(
                         com.lagradost.cloudstream3.desktop.ui.PipState.setPipMode(false)
                     }
 
-                    // Push the heavy WebView teardown to a background daemon thread
-                    // to prevent blocking the Compose EDT on first exit.
-                    java.lang.Thread({
-                        com.lagradost.common.logging.AppLogger.i("NativePlayer: Destroying WebView on daemon thread...")
-                        NativePlayerBridge.destroyWebView()
-                    }, "cs3-webview-dispose").apply {
-                        isDaemon = true
-                        start()
+                    // DesktopMpvEngine owns the final GTK/WebView teardown.
+                    // It waits for the MPV event loop to stop first, so this
+                    // composition must not destroy the shared native surface
+                    // while MPV can still deliver render callbacks.
+                }
+            }
+
+            // SwingPanel can be attached before AWT has assigned the Canvas its
+            // real size. In that case no componentResized event is guaranteed
+            // to arrive, leaving the native GTK surface hidden indefinitely.
+            // Give layout one bounded window to publish the first usable size;
+            // subsequent changes continue through componentResized above.
+            LaunchedEffect(Unit) {
+                repeat(120) {
+                    if (!isExiting && videoCanvas.width > 1 && videoCanvas.height > 1) {
+                        NativePlayerBridge.resizeWebView(videoCanvas.width, videoCanvas.height)
+                        return@LaunchedEffect
                     }
+                    kotlinx.coroutines.delay(16L)
                 }
             }
 

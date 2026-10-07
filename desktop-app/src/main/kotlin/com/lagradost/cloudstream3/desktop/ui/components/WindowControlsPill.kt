@@ -90,6 +90,28 @@ fun WindowControlsPill(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
 
+        // Keep the application-level fullscreen action available on every screen.
+        if (fullscreenController != null) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = theme.SurfaceElevated.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, theme.Divider.copy(alpha = 0.5f)),
+                shadowElevation = 0.dp,
+            ) {
+                IconButton(
+                    onClick = { fullscreenController.toggle.invoke() },
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
+                        tint = theme.TextPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
+
         if (isHome && providers.isNotEmpty()) {
             if (!isCompact) {
                 // 1. Refresh Button Pill (Desktop only)
@@ -171,7 +193,7 @@ fun WindowControlsPill(
                                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(
+                                ArabicAwareText(
                                     text = displayText.take(1).uppercase(),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.ExtraBold,
@@ -222,7 +244,7 @@ fun WindowControlsPill(
 
                         Spacer(Modifier.width(9.dp))
 
-                        Text(
+                        ArabicAwareText(
                             text = displayText,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
@@ -233,7 +255,5 @@ fun WindowControlsPill(
                 }
             }
         }
-
-        // Fullscreen handled natively via F11, video player gesture & controls
     }
 }

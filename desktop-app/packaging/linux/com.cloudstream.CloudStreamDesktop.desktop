@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=CloudStream Desktop
+Comment=CloudStream desktop media client
+Exec=cloudstream %U
+Icon=com.cloudstream.CloudStreamDesktop
+Terminal=false
+Categories=AudioVideo;Video;Player;
+StartupNotify=true
+StartupWMClass=CloudStream-Desktop
+MimeType=video/mp4;video/webm;video/x-matroska;video/x-msvideo;video/quicktime;video/mp2t;video/x-flv;application/vnd.apple.mpegurl;audio/mpeg;audio/ogg;audio/flac;audio/mp4;audio/x-m4a;

@@ -13,13 +13,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Headless controller for the native MPV core engine.
  * Decouples JNI pointer manipulation, background event loops, and hardware lifecycle from Compose.
  */
 class DesktopMpvEngine(
-    val scope: CoroutineScope,
     var playerState: PlayerState? = null,
     var onPlaybackReady: () -> Unit = {},
     var onPlaybackError: (String) -> Unit = {},
@@ -28,9 +30,37 @@ class DesktopMpvEngine(
     var onEventLoopReady: ((handle: Pointer) -> Unit)? = null,
     var isLive: Boolean = false,
 ) {
+    companion object {
+        // A player can leave Compose before its native MPV teardown thread has
+        // finished. Do not let the next player create a GTK/WebKit surface
+        // while the previous MPV handle is still being terminated.
+        private val teardownGate = AtomicReference<CompletableFuture<Void>?>(null)
+
+        private fun awaitPreviousTeardown(): Boolean {
+            val pending = teardownGate.get() ?: return true
+            if (pending.isDone) {
+                teardownGate.compareAndSet(pending, null)
+                return true
+            }
+
+            AppLogger.i("DesktopMpvEngine", "Waiting for the previous player teardown before creating MPV...")
+            return try {
+                pending.get(15, TimeUnit.SECONDS)
+                teardownGate.compareAndSet(pending, null)
+                true
+            } catch (e: Throwable) {
+                AppLogger.e("DesktopMpvEngine", "Previous player teardown did not finish in time: ${e.message}")
+                false
+            }
+        }
+    }
+
     @Volatile
     private var mpvHandle: Pointer? = null
-    private var eventJob: Job? = null
+    // Engine work must not share Compose's rememberCoroutineScope. Compose
+    // owns that scope and cancelling it while a Swing Canvas is being removed
+    // can recursively cancel UI work that is still disposing the player.
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val isDestroyed = AtomicBoolean(false)
 
     val nativeHandleValue: Long?
@@ -63,6 +93,10 @@ class DesktopMpvEngine(
         onPostInit: ((handle: Pointer) -> Unit)? = null,
     ): Pointer? {
         if (isDestroyed.get()) return null
+        if (!awaitPreviousTeardown()) {
+            onPlaybackError("Previous player is still closing. Please try again.")
+            return null
+        }
 
         try {
             val lib = MpvLibrary.INSTANCE
@@ -78,13 +112,29 @@ class DesktopMpvEngine(
             lib.mpv_set_option_string(handle, "osd-level", "0")
             lib.mpv_set_option_string(handle, "osd-bar", "no")
 
-            // VO: use battle-tested 'gpu' output
-            lib.mpv_set_option_string(handle, "vo", "gpu")
+            // Linux uses libmpv's Render API and presents frames through the
+            // GTK GLArea. Using "gpu" here makes mpv create its own native
+            // window; "libmpv" keeps the video inside the render context.
+            val isWindowsHost = System.getProperty("os.name", "").contains("win", ignoreCase = true)
+            lib.mpv_set_option_string(handle, "vo", if (isWindowsHost) "gpu" else "libmpv")
 
             // Apply user preferences
             PlayerConfig.applyMpvSettings(handle, lib)
 
-            lib.mpv_set_option_string(handle, "wid", canvasWid.toString())
+            if (isWindowsHost) {
+                // Windows uses the original native child-window embedding path.
+                lib.mpv_set_option_string(handle, "wid", canvasWid.toString())
+            } else {
+                // Linux renders through the GTK MPV Render API. Passing an X11
+                // wid here would make mpv create a second native video window
+                // and would put us back into the ghosting/black-surface path.
+                lib.mpv_set_option_string(handle, "gpu-api", "opengl")
+                // GtkGLArea may use GLX on X11 while VAAPI interop requires
+                // EGL on some drivers. Use software decode until the unified
+                // render surface is proven stable; MPV still presents through
+                // the GPU and this avoids audio-only frames from VAAPI.
+                lib.mpv_set_option_string(handle, "hwdec", "no")
+            }
             lib.mpv_set_option_string(handle, "input-default-bindings", "no")
             lib.mpv_set_option_string(handle, "input-vo-keyboard", "no")
             lib.mpv_set_option_string(handle, "save-position-on-quit", "no")
@@ -123,6 +173,16 @@ class DesktopMpvEngine(
             return handle
         } catch (e: Throwable) {
             AppLogger.e("DesktopMpvEngine", "Exception during MPV creation: ${e.message}", e)
+            if (mpvHandle != null) {
+                runCatching { destroy() }
+                    .onFailure { cleanupError ->
+                        AppLogger.e(
+                            "DesktopMpvEngine",
+                            "Failed to clean up MPV after initialization error: ${cleanupError.message}",
+                            cleanupError,
+                        )
+                    }
+            }
             onPlaybackError("MPV Engine error: ${e.message}")
             return null
         }
@@ -131,7 +191,7 @@ class DesktopMpvEngine(
     private fun startEventLoop(handle: Pointer) {
         onEventLoopReady?.invoke(handle)
 
-        eventJob = scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val lib = MpvLibrary.INSTANCE
             lib.mpv_observe_property(handle, 1L, "time-pos", 5) // Double
             lib.mpv_observe_property(handle, 2L, "duration", 5) // Double
@@ -702,7 +762,7 @@ class DesktopMpvEngine(
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
 
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             waitingForTimePosReset = true
             hasEverPlayed = false
 
@@ -748,7 +808,7 @@ class DesktopMpvEngine(
     fun seekTo(positionMs: Long) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val sec = (positionMs / 1000.0).toString()
             MpvLibrary.INSTANCE.mpv_command_string(handle, "seek $sec absolute")
         }
@@ -757,7 +817,7 @@ class DesktopMpvEngine(
     fun seekBy(offsetMs: Long) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val offsetSec = offsetMs / 1000.0
             MpvLibrary.INSTANCE.mpv_command_string(handle, "seek $offsetSec relative")
         }
@@ -766,7 +826,7 @@ class DesktopMpvEngine(
     fun togglePause() {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val current = _isPaused.value
             MpvLibrary.INSTANCE.mpv_set_property_string(handle, "pause", if (current) "no" else "yes")
         }
@@ -775,7 +835,7 @@ class DesktopMpvEngine(
     fun pause() {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val res = MpvLibrary.INSTANCE.mpv_set_property_string(handle, "pause", "yes")
             if (res < 0) {
                 MpvLibrary.INSTANCE.mpv_command_string(handle, "set pause yes")
@@ -786,7 +846,7 @@ class DesktopMpvEngine(
     fun play() {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             val res = MpvLibrary.INSTANCE.mpv_set_property_string(handle, "pause", "no")
             if (res < 0) {
                 MpvLibrary.INSTANCE.mpv_command_string(handle, "set pause no")
@@ -797,7 +857,7 @@ class DesktopMpvEngine(
     fun stop() {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             try {
                 MpvLibrary.INSTANCE.mpv_command_string(handle, "stop")
             } catch (e: Throwable) {
@@ -809,7 +869,7 @@ class DesktopMpvEngine(
     fun setSpeed(newSpeed: Double) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             MpvLibrary.INSTANCE.mpv_set_property_string(handle, "speed", newSpeed.toString())
         }
     }
@@ -817,7 +877,7 @@ class DesktopMpvEngine(
     fun setVolume(newVolume: Double) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             MpvLibrary.INSTANCE.mpv_set_property_string(handle, "volume", newVolume.toString())
         }
     }
@@ -825,7 +885,7 @@ class DesktopMpvEngine(
     fun toggleMute() {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             MpvLibrary.INSTANCE.mpv_command_string(handle, "cycle mute")
         }
     }
@@ -833,39 +893,61 @@ class DesktopMpvEngine(
     fun setMute(isMuted: Boolean) {
         val handle = mpvHandle ?: return
         if (isDestroyed.get()) return
-        scope.launch(Dispatchers.IO) {
+        engineScope.launch(Dispatchers.IO) {
             MpvLibrary.INSTANCE.mpv_set_property_string(handle, "mute", if (isMuted) "yes" else "no")
         }
     }
 
-    fun destroy() {
+    fun destroy(waitForNative: Boolean = true) {
         if (!isDestroyed.compareAndSet(false, true)) return
 
         val handle = mpvHandle
         mpvHandle = null
-        eventJob?.cancel()
+        val engineJobToJoin = engineScope.coroutineContext[Job]
+        // Cancel only jobs owned by this engine. The Compose scope belongs to
+        // the UI and must remain alive while the Canvas is being removed.
+        engineScope.cancel()
 
-        // Clear C++ sync pointer first so it never polls a destroyed handle
+        val teardownSignal = CompletableFuture<Void>()
+        val previousTeardown = teardownGate.getAndSet(teardownSignal)
         try {
-            NativePlayerBridge.stopMpvSync()
-        } catch (e: Throwable) {
-            AppLogger.w("DesktopMpvEngine", "Error stopping WebView sync: ${e.message}")
-        }
-
-        if (handle != null) {
-            // Teardown asynchronously off the Compose EDT
-            Thread({
-                try {
-                    AppLogger.i("DesktopMpvEngine", "Terminating native MPV instance off EDT...")
-                    MpvLibrary.INSTANCE.mpv_command_string(handle, "stop")
-                    MpvLibrary.INSTANCE.mpv_terminate_destroy(handle)
-                } catch (e: Throwable) {
-                    AppLogger.w("DesktopMpvEngine", "Error during MPV destroy: ${e.message}")
-                }
-            }, "cs3-mpv-destroy").apply {
-                isDaemon = true
-                start()
+            // Keep the native surface owned until MPV has completely stopped.
+            // Releasing GTK first lets the still-running MPV/X11 code touch a
+            // surface that AWT is already removing.
+            previousTeardown?.get()
+            if (engineJobToJoin != null) {
+                AppLogger.i("DesktopMpvEngine", "Waiting for MPV jobs to stop before native teardown...")
+                runBlocking { engineJobToJoin.join() }
+                AppLogger.i("DesktopMpvEngine", "MPV jobs stopped")
             }
+
+            try {
+                NativePlayerBridge.stopMpvSync()
+            } catch (e: Throwable) {
+                AppLogger.w("DesktopMpvEngine", "Error stopping WebView sync: ${e.message}")
+            }
+
+            if (!System.getProperty("os.name", "").contains("win", ignoreCase = true)) {
+                // The Linux MPV Render API context is owned by the GTK
+                // surface. Park the reusable GTK/WebKit tree and detach the
+                // render context before mpv_terminate_destroy().
+                NativePlayerBridge.destroyWebView()
+                AppLogger.i("DesktopMpvEngine", "GTK/WebView surface parked for reuse")
+            }
+
+            if (handle != null) {
+                AppLogger.i("DesktopMpvEngine", "Calling mpv stop before native termination...")
+                val stopResult = MpvLibrary.INSTANCE.mpv_command_string(handle, "stop")
+                AppLogger.i("DesktopMpvEngine", "mpv stop returned: $stopResult")
+                AppLogger.i("DesktopMpvEngine", "Calling mpv_terminate_destroy...")
+                MpvLibrary.INSTANCE.mpv_terminate_destroy(handle)
+                AppLogger.i("DesktopMpvEngine", "mpv_terminate_destroy returned")
+            }
+        } catch (e: Throwable) {
+            AppLogger.w("DesktopMpvEngine", "Error during MPV destroy: ${e.message}")
+        } finally {
+            teardownSignal.complete(null)
+            teardownGate.compareAndSet(teardownSignal, null)
         }
     }
 }

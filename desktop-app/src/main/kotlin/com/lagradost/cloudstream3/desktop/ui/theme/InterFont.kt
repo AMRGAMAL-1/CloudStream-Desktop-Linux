@@ -3,6 +3,7 @@ package com.lagradost.cloudstream3.desktop.ui.theme
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontListFontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
@@ -23,6 +24,55 @@ val InterFontFamily: FontFamily by lazy {
         Font(identity = "Inter-SemiBold", data = loadFont("fonts/Inter-SemiBold.ttf"), weight = FontWeight.SemiBold, style = FontStyle.Normal),
         Font(identity = "Inter-Bold", data = loadFont("fonts/Inter-Bold.ttf"), weight = FontWeight.Bold, style = FontStyle.Normal),
     )
+}
+
+/** Arabic-only face used as a glyph fallback when the setting is enabled. */
+val CoconArabicFontFamily: FontFamily by lazy {
+    FontFamily(
+        Font(
+            identity = "CoconNextArabic-Light",
+            data = loadFont("fonts/cocon-next-arabic-regular.otf"),
+            weight = FontWeight.Light,
+            style = FontStyle.Normal,
+        ),
+        // The bundled face is light, but Compose resolves a font family by
+        // the requested weight before it performs glyph fallback. Register
+        // the same Arabic face for the common UI weights so Arabic text does
+        // not fall back to the selected Latin family for bold labels/titles.
+        Font(identity = "CoconNextArabic-Regular", data = loadFont("fonts/cocon-next-arabic-regular.otf"), weight = FontWeight.Normal, style = FontStyle.Normal),
+        Font(identity = "CoconNextArabic-Medium", data = loadFont("fonts/cocon-next-arabic-regular.otf"), weight = FontWeight.Medium, style = FontStyle.Normal),
+        Font(identity = "CoconNextArabic-SemiBold", data = loadFont("fonts/cocon-next-arabic-regular.otf"), weight = FontWeight.SemiBold, style = FontStyle.Normal),
+        Font(identity = "CoconNextArabic-Bold", data = loadFont("fonts/cocon-next-arabic-regular.otf"), weight = FontWeight.Bold, style = FontStyle.Normal),
+    )
+}
+
+val PnuArabicFontFamily: FontFamily by lazy {
+    FontFamily(
+        Font(identity = "PNU-Bold", data = loadFont("fonts/PNU-Bold.ttf"), weight = FontWeight.Normal, style = FontStyle.Normal),
+        Font(identity = "PNU-Bold-Medium", data = loadFont("fonts/PNU-Bold.ttf"), weight = FontWeight.Medium, style = FontStyle.Normal),
+        Font(identity = "PNU-Bold-SemiBold", data = loadFont("fonts/PNU-Bold.ttf"), weight = FontWeight.SemiBold, style = FontStyle.Normal),
+        Font(identity = "PNU-Bold-Bold", data = loadFont("fonts/PNU-Bold.ttf"), weight = FontWeight.Bold, style = FontStyle.Normal),
+    )
+}
+
+fun getArabicFontFamily(choice: ArabicFontChoice = AppearanceConfig.arabicFontChoice.value): FontFamily? {
+    return when (choice) {
+        ArabicFontChoice.NONE -> null
+        ArabicFontChoice.COCON -> CoconArabicFontFamily
+        ArabicFontChoice.PNU_BOLD -> PnuArabicFontFamily
+    }
+}
+
+private fun withArabicFallback(fontFamily: FontFamily, choice: ArabicFontChoice): FontFamily {
+    val arabicFamily = getArabicFontFamily(choice) ?: return fontFamily
+    val baseFonts = (fontFamily as? FontListFontFamily)?.fonts ?: return fontFamily
+    val arabicFonts = (arabicFamily as? FontListFontFamily)?.fonts ?: return fontFamily
+    // Compose resolves a FontFamily by weight/style before glyph fallback.
+    // Both families expose the same UI weights, so putting the base family
+    // first made Cocon unreachable for Arabic runs. Keep Cocon first so the
+    // enabled setting is observable; its Arabic face still falls back to the
+    // platform/base face for glyphs it does not contain.
+    return FontFamily(*(arabicFonts + baseFonts).toTypedArray())
 }
 
 val OutfitFontFamily: FontFamily by lazy {
@@ -94,25 +144,30 @@ val ManropeFontFamily: FontFamily by lazy {
 val availableFonts: List<String>
     get() = CustomFontManager.getAvailableFonts()
 
-fun getFontFamily(name: String): FontFamily {
-    if (name.isBlank() || name.equals("Plus Jakarta Sans", ignoreCase = true)) return PlusJakartaSansFontFamily
+fun getFontFamily(
+    name: String,
+    arabicFontChoice: ArabicFontChoice = AppearanceConfig.arabicFontChoice.value,
+): FontFamily {
+    if (name.isBlank() || name.equals("Plus Jakarta Sans", ignoreCase = true)) {
+        return withArabicFallback(PlusJakartaSansFontFamily, arabicFontChoice)
+    }
 
     // 1. Built-in curated fonts with multi-weight definitions loaded from app resources
     when (name) {
-        "Manrope" -> return ManropeFontFamily
-        "Outfit" -> return OutfitFontFamily
-        "Inter" -> return InterFontFamily
-        "DM Sans" -> return DMSansFontFamily
-        "Poppins" -> return PoppinsFontFamily
-        "Roboto" -> return RobotoFontFamily
-        "Nunito" -> return NunitoFontFamily
+        "Manrope" -> return withArabicFallback(ManropeFontFamily, arabicFontChoice)
+        "Outfit" -> return withArabicFallback(OutfitFontFamily, arabicFontChoice)
+        "Inter" -> return withArabicFallback(InterFontFamily, arabicFontChoice)
+        "DM Sans" -> return withArabicFallback(DMSansFontFamily, arabicFontChoice)
+        "Poppins" -> return withArabicFallback(PoppinsFontFamily, arabicFontChoice)
+        "Roboto" -> return withArabicFallback(RobotoFontFamily, arabicFontChoice)
+        "Nunito" -> return withArabicFallback(NunitoFontFamily, arabicFontChoice)
     }
 
     // 2. User-installed custom font file from fonts directory
     val customFontFile = CustomFontManager.getFontFile(name)
     if (customFontFile != null) {
         try {
-            return FontFamily(
+            val customFamily = FontFamily(
                 androidx.compose.ui.text.platform.Font(customFontFile, weight = FontWeight.Normal),
                 androidx.compose.ui.text.platform.Font(customFontFile, weight = FontWeight.Medium),
                 androidx.compose.ui.text.platform.Font(customFontFile, weight = FontWeight.SemiBold),
@@ -123,6 +178,7 @@ fun getFontFamily(name: String): FontFamily {
                 androidx.compose.ui.text.platform.Font(customFontFile, weight = FontWeight.ExtraLight),
                 androidx.compose.ui.text.platform.Font(customFontFile, weight = FontWeight.Black),
             )
+            return withArabicFallback(customFamily, arabicFontChoice)
         } catch (e: Exception) {
             com.lagradost.common.logging.AppLogger.e("Failed to load custom font: $name", e)
         }
@@ -130,7 +186,7 @@ fun getFontFamily(name: String): FontFamily {
 
     // 3. System font fallback
     return try {
-        FontFamily(androidx.compose.ui.text.platform.Font(name))
+        withArabicFallback(FontFamily(androidx.compose.ui.text.platform.Font(name)), arabicFontChoice)
     } catch (e: Exception) {
         com.lagradost.common.logging.AppLogger.e("Failed to load system font: $name", e)
         PlusJakartaSansFontFamily

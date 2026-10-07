@@ -59,6 +59,25 @@ object PlayerConfig {
     const val PREF_SUBSOURCE_API_KEY = "player_subsource_api_key"
     const val PREF_SUBSOURCE_ENABLED = "player_subsource_enabled"
 
+    private val isWindows = System.getProperty("os.name", "").contains("win", ignoreCase = true)
+
+    fun defaultGpuApi(): String = if (isWindows) "d3d11" else "opengl"
+
+    fun configuredGpuApi(): String {
+        val configured = DesktopDataStore.getKey<String>(PREF_GPU_API)
+        if (!isWindows) {
+            // The embedded X11 surface is most reliable with OpenGL. Keep
+            // Vulkan available as an explicit user choice, but do not let an
+            // old/default "auto" preference select a backend that can render
+            // audio while failing to present video into the child surface.
+            return when (configured?.lowercase()) {
+                null, "auto", "d3d11" -> defaultGpuApi()
+                else -> configured
+            }
+        }
+        return configured ?: defaultGpuApi()
+    }
+
     fun getVideoBufferBytes(): Long {
         val pref = com.lagradost.common.storage.DesktopDataStore.getKey<String>(PREF_VIDEO_BUFFER_SIZE)
         val bytes = when (pref) {
@@ -126,7 +145,7 @@ object PlayerConfig {
         val hwdec = DesktopDataStore.getKey<String>(PREF_HWDEC) ?: "auto-safe"
         lib.mpv_set_option_string(handle, "hwdec", hwdec)
 
-        val gpuApi = DesktopDataStore.getKey<String>(PREF_GPU_API) ?: "d3d11"
+        val gpuApi = configuredGpuApi()
         lib.mpv_set_option_string(handle, "gpu-api", gpuApi)
 
         // Native Language Track Priorities (slang / alang)

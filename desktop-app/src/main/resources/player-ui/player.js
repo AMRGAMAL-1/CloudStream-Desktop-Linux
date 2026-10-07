@@ -400,6 +400,9 @@
         const pOverlay = document.getElementById('linkProbingOverlay');
         const pContent = document.getElementById('linkProbingContent');
         if (pOverlay) {
+            pOverlay.style.removeProperty('visibility');
+            pOverlay.style.removeProperty('opacity');
+            pOverlay.style.removeProperty('pointer-events');
             pOverlay.classList.add('active');
             pOverlay.classList.remove('dismissing');
             delete pOverlay.dataset.dismissing;
@@ -658,7 +661,7 @@
     }
 
     // Panel toggles
-    const panels = ['qualityServerPopover','audioSubsPopover','episodesPanel','chaptersPanel','serversPanel','subsPanel','settingsPanel','speedPanel','aspectPanel'];
+    const panels = ['qualityServerPopover','audioSubsPopover','episodesPanel','chaptersPanel','serversPanel','subsPanel','settingsPanel','speedPanel'];
 
     // SVG Icons
     const SVGS = {
@@ -956,11 +959,8 @@
     // Close buttons
     document.getElementById('closeEpisodesBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
     document.getElementById('closeChaptersBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
-    document.getElementById('closeServersBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
     document.getElementById('closeSubsBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
     document.getElementById('closeSettingsBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
-    document.getElementById('closeQualityBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
-    document.getElementById('closeAudioBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
     document.getElementById('closeSpeedBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
     document.getElementById('closeAspectBtn')?.addEventListener('click', e => { e.stopPropagation(); closeAllPanels(); });
 
@@ -2484,6 +2484,9 @@
             if (!pOverlay.classList.contains('dismissing')) {
                 if (window.probingDismissTimer) clearTimeout(window.probingDismissTimer);
                 if (!pOverlay.classList.contains('active')) {
+                    pOverlay.style.removeProperty('visibility');
+                    pOverlay.style.removeProperty('opacity');
+                    pOverlay.style.removeProperty('pointer-events');
                     clearTimeout(hideTimer);
                     document.body.classList.remove('hidden-controls');
                     pOverlay.classList.add('active');
@@ -3372,11 +3375,6 @@
             if (audioStationEl) audioStationEl.style.display = 'none';
         }
 
-        const audioModeBtn = document.getElementById('audioModeBtn');
-        if (audioModeBtn) {
-            audioModeBtn.classList.toggle('active', isAudioActive);
-        }
-
         const audioStationTitle = document.getElementById('audioStationTitle');
         const audioStationSub = document.getElementById('audioStationSubtitle');
         const audioStationCover = document.getElementById('audioStationCoverImg');
@@ -3664,6 +3662,12 @@
                 // Crossfade the dark backdrop out and disable overlay
                 pOverlay.classList.add('dismissing');
                 pOverlay.classList.remove('active');
+                // The Linux WebKit surface is composited above MPV. Hide the
+                // probing artwork explicitly so it cannot remain as a
+                // translucent ghost over the decoded video frame.
+                pOverlay.style.visibility = 'hidden';
+                pOverlay.style.opacity = '0';
+                pOverlay.style.pointerEvents = 'none';
                 delete pOverlay.dataset.dismissing;
                 
                 setTimeout(() => {
@@ -4854,13 +4858,20 @@
 
     episodesBtn.addEventListener('click', e => { e.stopPropagation(); togglePanel('episodesPanel'); });
     chaptersBtn?.addEventListener('click', e => { e.stopPropagation(); togglePanel('chaptersPanel'); });
-    document.getElementById('serversBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('serversPanel'); });
-    document.getElementById('subtitlesBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('subsPanel'); });
     document.getElementById('settingsBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('settingsPanel'); });
-    document.getElementById('qualityBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('qualityPanel'); });
-    document.getElementById('audioBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('audioPanel'); });
     document.getElementById('speedBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('speedPanel'); });
-    document.getElementById('aspectBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('aspectPanel'); });
+    document.getElementById('aspectBtn')?.addEventListener('click', e => {
+        e.stopPropagation();
+        // v0.1.9 moved Aspect Ratio & Zoom into the Video tab of the main
+        // settings panel. Keep the dedicated player button wired to that
+        // single source of controls instead of the removed aspectPanel.
+        const settingsPanel = document.getElementById('settingsPanel');
+        if (!settingsPanel?.classList.contains('open')) {
+            togglePanel('settingsPanel');
+        }
+        const videoTab = settingsPanel?.querySelector('.settings-tab-btn[data-tab-target="set-video"]');
+        if (videoTab) videoTab.click();
+    });
 
     // Capsule Buttons (Quality & Server, Audio & Subtitles)
     document.getElementById('qualityServerBtn')?.addEventListener('click', e => {
@@ -4882,11 +4893,6 @@
                 if (typeof syncSpeedBadge === 'function') syncSpeedBadge(sp);
             }
         });
-    });
-    document.getElementById('popoverGearBtn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeAllPanels();
-        togglePanel('settingsPanel');
     });
     document.getElementById('uploadSubBtn')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -4934,7 +4940,6 @@
 
     // ── Dedicated Audio Station Listeners ─────────────────────────────
     document.getElementById('audioBackBtn')?.addEventListener('click', e => { e.stopPropagation(); triggerExit(); });
-    document.getElementById('audioModeBtn')?.addEventListener('click', e => { e.stopPropagation(); send('toggleAudioMode'); });
     document.getElementById('audioReturnToVideoBtn')?.addEventListener('click', e => { e.stopPropagation(); send('toggleAudioMode', false); });
     document.getElementById('audioChaptersBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('chaptersPanel'); });
     document.getElementById('audioEpisodesBtn')?.addEventListener('click', e => { e.stopPropagation(); togglePanel('episodesPanel'); });
@@ -6796,6 +6801,9 @@
                     handleMessage(e.data);
                 });
             }
-            send('ui_ready');
+            // notifyReady() already completed the one-shot handshake. Re-sending
+            // it every 250ms made the native Linux bridge repeatedly focus and
+            // restack the WebView while MPV was creating its X11 child window.
+            if (!_uiReadyDispatched) send('ui_ready');
         }
     }, 250);

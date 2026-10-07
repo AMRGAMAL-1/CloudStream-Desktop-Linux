@@ -3,6 +3,8 @@ package com.lagradost.cloudstream3.desktop
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.lagradost.cloudstream3.desktop.updates.AppUpdateChannel
+import com.lagradost.common.logging.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +37,15 @@ object AppUpdater {
         if (hasChecked && !force) return
         withContext(Dispatchers.IO) {
             try {
-                val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases?per_page=5"
+                val repository = AppUpdateChannel.repository()
+                if (repository == null) {
+                    AppLogger.i("AppUpdater", AppUpdateChannel.statusDescription())
+                    _latestRelease.value = null
+                    hasChecked = true
+                    return@withContext
+                }
+
+                val url = "https://api.github.com/repos/$repository/releases?per_page=20"
                 val request = Request.Builder()
                     .url(url)
                     .header("Accept", "application/vnd.github.v3+json")
@@ -44,18 +54,35 @@ object AppUpdater {
                     if (response.isSuccessful) {
                         response.body?.string()?.let { bodyString ->
                             val releases = mapper.readValue<List<GitHubRelease>>(bodyString)
-                            val release = releases.firstOrNull { !it.draft } ?: return@use
-                            val remoteVersion = release.tag_name.removePrefix("v")
+                            val release = releases
+                                .filter {
+                                    AppUpdateChannel.isSupportedRelease(
+                                        it.tag_name,
+                                        it.draft,
+                                        it.prerelease,
+                                    )
+                                }
+                                .maxWithOrNull { left, right ->
+                                    compareVersions(
+                                        AppUpdateChannel.releaseVersion(left.tag_name).orEmpty(),
+                                        AppUpdateChannel.releaseVersion(right.tag_name).orEmpty(),
+                                    )
+                                }
+                                ?: return@use
+                            val remoteVersion = AppUpdateChannel.releaseVersion(release.tag_name)
+                                ?: return@use
 
                             if (compareVersions(remoteVersion, AppConfig.APP_VERSION) > 0) {
                                 _latestRelease.value = release
+                            } else {
+                                _latestRelease.value = null
                             }
                         }
                     }
                 }
                 hasChecked = true
             } catch (e: Exception) {
-                com.lagradost.common.logging.AppLogger.e("Update check failed", e)
+                AppLogger.e("Update check failed", e)
             }
         }
     }

@@ -338,6 +338,7 @@ fun EmbeddedVideoPlayer(
                             fullscreenController?.toggle?.invoke()
                         },
                         playerState = playerState,
+                        backend = actualLaunchData.playerBackend,
                     )
                 } // end outer Box
             } // end if (!error && !finished)

@@ -3,6 +3,7 @@
 package com.lagradost.cloudstream3.desktop.player
 
 import com.lagradost.common.logging.AppLogger
+import com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge
 import com.sun.jna.Library
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
@@ -80,6 +81,13 @@ interface MpvLibrary : Library {
     }
 
     companion object {
+        private val isWindows = System.getProperty("os.name", "").contains("win", ignoreCase = true)
+
+        fun isAvailable(): Boolean = runCatching {
+            INSTANCE
+            true
+        }.getOrDefault(false)
+
         fun getPropertyString(ctx: Pointer, name: String): String? {
             return try {
                 val ptr = INSTANCE.mpv_get_property_string(ctx, name) ?: return null
@@ -102,7 +110,21 @@ interface MpvLibrary : Library {
         }
 
         val INSTANCE: MpvLibrary by lazy {
-            val targets = listOf("libmpv-2", "mpv-2", "mpv-1", "mpv", "libmpv", "libmpv.so.1", "libmpv.so.2", "mpv-3.dll")
+            if (!isWindows) {
+                // MPV rejects a non-C native numeric locale during mpv_create().
+                // The Linux bridge is already loaded by the desktop app and sets
+                // LC_NUMERIC before JNA resolves the MPV symbols.
+                runCatching { NativePlayerBridge.configureMpvLocale() }
+            }
+
+            val targets = if (isWindows) {
+                listOf("libmpv-2", "mpv-2", "mpv-1", "mpv-3.dll")
+            } else {
+                // JNA prefixes a bare library name with `lib` on Linux. Starting
+                // with `mpv` therefore resolves the system libmpv.so correctly;
+                // `libmpv-2` would incorrectly become liblibmpv-2.so.
+                listOf("mpv", "libmpv", "mpv-2", "libmpv.so.2", "libmpv.so.1")
+            }
             var loaded: MpvLibrary? = null
             for (target in targets) {
                 try {

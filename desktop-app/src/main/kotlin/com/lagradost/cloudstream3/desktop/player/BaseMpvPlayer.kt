@@ -16,6 +16,8 @@ import java.awt.Canvas
 import java.awt.Color
 import java.awt.event.*
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val ISO_639_LANG_MAP = mapOf(
     "eng" to "English", "en" to "English",
@@ -194,7 +196,6 @@ fun BaseMpvPlayer(
 
     val engine = remember {
         DesktopMpvEngine(
-            scope = scope,
             playerState = playerState,
             onPlaybackReady = { currentOnPlaybackReady() },
             onPlaybackError = { currentOnPlaybackError(it) },
@@ -536,12 +537,65 @@ fun BaseMpvPlayer(
         }
     }
 
+    val cleanupRequested = remember { AtomicBoolean(false) }
+    val cleanupCompleted = remember { AtomicBoolean(false) }
+    val cleanupLock = remember { Any() }
+    val cleanupCompletions = remember { CopyOnWriteArrayList<() -> Unit>() }
+    val engineInitLock = remember { Any() }
+    val initializationStarted = remember { AtomicBoolean(false) }
+
+    fun destroyEngineAsync(onComplete: () -> Unit = {}) {
+        var completeNow = false
+        val shouldStart = synchronized(cleanupLock) {
+            if (cleanupCompleted.get()) {
+                completeNow = true
+                false
+            } else {
+                cleanupCompletions += onComplete
+                cleanupRequested.compareAndSet(false, true)
+            }
+        }
+        if (completeNow) {
+            javax.swing.SwingUtilities.invokeLater { onComplete() }
+            return
+        }
+        if (!shouldStart) return
+
+        Thread({
+            runCatching {
+                synchronized(engineInitLock) {
+                    engine.destroy(waitForNative = true)
+                }
+            }.onFailure {
+                AppLogger.w("BaseMpvPlayer", "MPV teardown failed: ${it.message}")
+            }
+
+            javax.swing.SwingUtilities.invokeLater {
+                val completions = synchronized(cleanupLock) {
+                    cleanupCompleted.set(true)
+                    cleanupCompletions.toList().also { cleanupCompletions.clear() }
+                }
+                completions.forEach { it() }
+            }
+        }, "cs3-mpv-cleanup").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
     val videoCanvas = remember {
         object : java.awt.Canvas() {
             init {
                 background = java.awt.Color.BLACK
             }
             var keyDispatcher: java.awt.KeyEventDispatcher? = null
+            private val peerRemovalRequested = AtomicBoolean(false)
+
+            private fun completePeerRemoval() {
+                if (peerRemovalRequested.compareAndSet(false, true)) {
+                    super.removeNotify()
+                }
+            }
 
             override fun paint(g: java.awt.Graphics?) {
                 g?.color = java.awt.Color.BLACK
@@ -555,40 +609,60 @@ fun BaseMpvPlayer(
                 super.addNotify()
 
                 if (engine.isHandleValid()) return
+                if (cleanupRequested.get()) return
+                if (!initializationStarted.compareAndSet(false, true)) return
 
                 val isWindows = System.getProperty("os.name").lowercase().contains("win")
                 val mpvExe = resolveMpvExecutable(isWindows)
-                if (mpvExe == null) {
+                if (mpvExe == null && !MpvLibrary.isAvailable()) {
                     currentOnPlaybackError("MPV executable not found.")
                     return
                 }
-                val mpvDir = mpvExe.parentFile
-                System.setProperty("jna.library.path", mpvDir.absolutePath)
+                if (mpvExe != null) {
+                    val mpvDir = mpvExe.parentFile
+                    System.setProperty("jna.library.path", mpvDir.absolutePath)
 
-                val targets = listOf("libmpv-2", "mpv-2", "mpv-1", "mpv", "libmpv", "mpv-3.dll")
-                targets.forEach { target ->
-                    com.sun.jna.NativeLibrary.addSearchPath(target, mpvDir.absolutePath)
+                    val targets = if (isWindows) {
+                        listOf("libmpv-2", "mpv-2", "mpv-1", "mpv-3.dll")
+                    } else {
+                        listOf("mpv", "libmpv", "mpv-2", "libmpv.so.2", "libmpv.so.1")
+                    }
+                    targets.forEach { target ->
+                        com.sun.jna.NativeLibrary.addSearchPath(target, mpvDir.absolutePath)
+                    }
                 }
 
-                val wid = com.sun.jna.Native.getComponentID(this)
-                val handle = engine.createAndInitialize(
-                    canvasWid = wid,
-                    width = this.width.coerceAtLeast(1),
-                    height = this.height.coerceAtLeast(1),
-                    onPreInit = { h, w, widthVal, heightVal ->
-                        onPreInitialize?.invoke(h, w, widthVal, heightVal)
-                    },
-                    onPostInit = { h ->
-                        onPostInitialize?.invoke(h)
-                    },
-                )
-                if (handle == null) return
-
-                playerState?.attachEngine(engine)
-                isEngineReady = true
-
                 val canvas = this
-                canvas.addMouseMotionListener(object : MouseMotionAdapter() {
+                val wid = com.sun.jna.Native.getComponentID(canvas)
+                Thread({
+                    val handle = synchronized(engineInitLock) {
+                        if (cleanupRequested.get()) {
+                            null
+                        } else {
+                            engine.createAndInitialize(
+                                canvasWid = wid,
+                                width = canvas.width.coerceAtLeast(1),
+                                height = canvas.height.coerceAtLeast(1),
+                                onPreInit = { h, w, widthVal, heightVal ->
+                                    onPreInitialize?.invoke(h, w, widthVal, heightVal)
+                                },
+                                onPostInit = { h ->
+                                    onPostInitialize?.invoke(h)
+                                },
+                            )
+                        }
+                    }
+
+                    javax.swing.SwingUtilities.invokeLater {
+                        if (handle == null || cleanupRequested.get() || !canvas.isDisplayable) {
+                            destroyEngineAsync()
+                            return@invokeLater
+                        }
+
+                        playerState?.attachEngine(engine)
+                        isEngineReady = true
+
+                        canvas.addMouseMotionListener(object : MouseMotionAdapter() {
                     override fun mouseMoved(e: MouseEvent) {
                         engine.executeCommand("mouse ${e.x} ${e.y}")
                     }
@@ -597,7 +671,7 @@ fun BaseMpvPlayer(
                     }
                 })
 
-                canvas.addMouseListener(object : MouseAdapter() {
+                        canvas.addMouseListener(object : MouseAdapter() {
                     override fun mousePressed(e: MouseEvent) {
                         val seekSecs = PlayerConfig.getSeekDurationSeconds()
                         if (e.button == 4) {
@@ -630,18 +704,18 @@ fun BaseMpvPlayer(
                     }
                 })
 
-                canvas.addFocusListener(object : java.awt.event.FocusAdapter() {
+                        canvas.addFocusListener(object : java.awt.event.FocusAdapter() {
                     override fun focusGained(e: java.awt.event.FocusEvent?) {
                         com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.focusWebView()
                     }
                 })
 
-                canvas.addMouseWheelListener { e ->
+                        canvas.addMouseWheelListener { e ->
                     val key = if (e.wheelRotation < 0) "WHEEL_UP" else "WHEEL_DOWN"
                     engine.executeCommand("keypress $key")
                 }
 
-                this.keyDispatcher = java.awt.KeyEventDispatcher { e ->
+                        this.keyDispatcher = java.awt.KeyEventDispatcher { e ->
                     if (e.id == KeyEvent.KEY_PRESSED) {
                         val mpvKey = awtKeyToMpv(e)
                         val lower = mpvKey?.lowercase() ?: ""
@@ -720,7 +794,12 @@ fun BaseMpvPlayer(
                     }
                     false
                 }
-                java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(this.keyDispatcher)
+                        java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(this.keyDispatcher)
+                    }
+                }, "cs3-mpv-init").apply {
+                    isDaemon = true
+                    start()
+                }
             }
 
             override fun removeNotify() {
@@ -730,8 +809,10 @@ fun BaseMpvPlayer(
                 }
                 isEngineReady = false
                 playerState?.detachEngine()
-                engine.destroy()
-                super.removeNotify()
+                // Do not remove the AWT peer while MPV/GTK still owns the
+                // embedded X11 surface. Cleanup completes off the EDT, then
+                // the peer is removed on the EDT through the callback.
+                destroyEngineAsync { completePeerRemoval() }
             }
         }.apply {
             background = Color.BLACK
@@ -741,17 +822,18 @@ fun BaseMpvPlayer(
 
     LaunchedEffect(isExiting) {
         if (isExiting) {
-            videoCanvas.isVisible = false
-            videoCanvas.bounds = java.awt.Rectangle(0, 0, 0, 0)
+            // Keep the heavyweight Canvas alive until native teardown is
+            // complete. Hiding/resizing it first invalidates the X11 host
+            // while GTK/WebKit or MPV may still be using it.
+            destroyEngineAsync()
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            videoCanvas.isVisible = false
             isEngineReady = false
             playerState?.detachEngine()
-            engine.destroy()
+            destroyEngineAsync()
         }
     }
 
@@ -774,6 +856,7 @@ private fun resolveMpvExecutable(isWindows: Boolean): File? {
         File("2_cloudstream_desktop/mpv"),
         File("desktop-app/mpv"),
         File("desktop-app/appResources/mpv"),
+        File("desktop-app/appResources/linux/mpv"),
         File("desktop-app/appResources/windows/mpv"),
     )
     for (base in candidates) {

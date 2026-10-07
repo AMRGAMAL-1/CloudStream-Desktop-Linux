@@ -1,6 +1,6 @@
 # CloudStream Desktop (Unofficial Client)
 
-Desktop-native streaming client built with **Compose Multiplatform** for 64-bit Windows. Runs Android CloudStream extensions natively on a desktop JVM without requiring emulators or compatibility layers.
+Desktop-native streaming client built with **Compose Multiplatform** for 64-bit Windows and Linux. Runs Android CloudStream extensions natively on a desktop JVM without requiring emulators or compatibility layers.
 
 > [!CAUTION]
 > **Active Developer & Experimental Pre-Alpha State**
@@ -10,7 +10,7 @@ Desktop-native streaming client built with **Compose Multiplatform** for 64-bit 
 
 > [!IMPORTANT]
 > **Project Scope & Architecture Directives**
-> * **Desktop-Exclusive Hard Fork:** This repository is built exclusively for 64-bit Windows desktop. It is an independent hard fork and does not merge upstream into Android CloudStream.
+> * **Desktop-Exclusive Hard Fork:** This repository is built for 64-bit desktop platforms. It is an independent hard fork and does not merge upstream into Android CloudStream.
 > * **Zero Affiliation:** This project is independent and unaffiliated with the original Android CloudStream application or its development team. Please do not contact upstream developers regarding this client.
 > * **Ad-Free Policy:** Strict ad-free project. Derivative builds and forks must remain clean, free, and open.
 
@@ -33,10 +33,99 @@ The application is structured into modular subprojects separating platform abstr
 ## Developer Setup & Quick Start
 
 ### Prerequisites
-* **Operating System:** Windows 10 / 11 (64-bit)
-* **Web Runtime:** **Microsoft Edge WebView2 Runtime** (pre-installed by default on Windows 11 and modern Windows 10; [Evergreen Bootstrapper](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) available if omitted on custom OS builds). Note: Google Chrome is not used.
+* **Operating System:** Windows 10 / 11 or Linux (64-bit)
+* **Web Runtime:** Windows uses **Microsoft Edge WebView2 Runtime**; Linux uses system **WebKitGTK 4.1** for the native player host.
 * **Java Development Kit:** **JDK 21** or higher (e.g. [Eclipse Adoptium Temurin 21](https://adoptium.net/temurin/releases/?version=21))
 * **Git:** Installed and available in PATH
+
+#### Linux runtime support matrix
+
+The Linux player is portable across 64-bit distributions that provide GTK 3,
+WebKitGTK 4.1, libmpv, X11/OpenGL/EGL, and JDK 21. Wayland sessions currently
+need XWayland because the embedded AWT/GTK surface is an X11 child surface;
+native Wayland without XWayland is not supported yet. VLC is an optional native
+backend and additionally needs the system libVLC runtime.
+
+For an exact machine check, run:
+
+```bash
+bash desktop-app/check-linux-dependencies.sh
+```
+
+#### Realistic compatibility matrix
+
+| Distribution family | Package path | Display path | Current evidence | Known limitation |
+| --- | --- | --- | --- | --- |
+| Debian 12+ / Ubuntu 22.04+ / Deepin 23 / Mint 21+ | DEB, portable TAR | X11; Wayland via XWayland | Runtime verified on Deepin; DEB/TAR built locally; Ubuntu 22.04 CI workflow | Host WebKitGTK 4.1/libmpv sonames must be available |
+| Fedora 36+ / RHEL-family / openSUSE Tumbleweed | RPM, portable TAR | X11; Wayland via XWayland | RPM spec and host-provided dependency model prepared | Package names and WebKitGTK availability vary by release; runtime not tested here |
+| Arch / Manjaro / EndeavourOS / Pop!_OS / KDE neon / elementary OS 7 | Portable TAR or native repackaging | X11; Wayland via XWayland | Soname-based preflight avoids distro package-name assumptions | Runtime validation on each distribution is still required |
+| Debian 11 / Ubuntu 20.04 / openSUSE Leap 15.x | — (build from source only) | X11; Wayland via XWayland | Below the glibc 2.35 baseline; a source build on that system may work | No prebuilt package is provided for this class |
+| x86_64 | All local package targets | Supported target | Native bridge and packages validated on x86_64 | Keep the CI-built baseline for distribution |
+| aarch64 / ARM64 | DEB, TAR (experimental CI job) | Depends on host X11/XWayland | Packaging selects arm64; optional arm64 CI job builds DEB/TAR | No media-playback validation on ARM GPUs yet; treat as experimental |
+
+The current locally built bridge reports GLIBC_2.34 and GLIBCXX_3.4.30 as its
+minimum observed symbol versions; the Deepin-bundled JDK also raises the
+bundled JRE requirement to glibc 2.38. This is evidence from the current
+developer build, not the release baseline.
+
+**Official release baseline (produced by CI on Ubuntu 22.04):** glibc >= 2.35,
+libstdc++ / GLIBCXX >= 3.4.29 (GCC 11), x86_64. This covers Debian 12+,
+Ubuntu 22.04+, Linux Mint 21+, Pop!_OS 22.04+, elementary OS 7+, KDE neon,
+Deepin 23, Fedora 36+, Arch/Manjaro/EndeavourOS and openSUSE Tumbleweed.
+Debian 11 / Ubuntu 20.04 / openSUSE Leap 15.x (glibc 2.31) are below the
+baseline and are **not** supported by prebuilt packages. Always prefer the
+CI-built packages for distribution; a package built on a newer toolchain or
+JDK silently inherits that host's higher glibc requirement.
+
+The check is based on runtime library sonames, not package names, so it works
+across Debian/Ubuntu/Deepin, Fedora, and Arch-style systems. Package names and
+installation commands for the main families are documented in
+`desktop-app/README.md`.
+
+#### Production Linux release checklist
+
+```bash
+# 1. Build the native bridge, run all JVM tests, and produce the runtime image
+./gradlew :plugin-runtime:test :player-abstraction:test :desktop-app:test \
+    :desktop-app:linuxNativeBridge :desktop-app:createDistributable \
+    --no-daemon -PAPP_VERSION="$APP_VERSION"
+
+# 2. Preflight the host dependencies (soname-based)
+bash desktop-app/check-linux-dependencies.sh
+
+# 3. Build TAR + DEB + RPM (AppImage needs appimagetool and is built in CI)
+SKIP_BUILD=1 bash desktop-app/packaging/build-linux-packages.sh --all
+
+# 4. Validate the runtime image (ELF arch, ldd, cfg paths, desktop entry, --version, --diagnostics)
+SKIP_BUILD=1 bash desktop-app/packaging/build-linux-packages.sh --validate
+desktop-file-validate desktop-app/packaging/linux/com.cloudstream.CloudStreamDesktop.desktop
+
+# 5. Install/uninstall smoke test (Debian-family, requires sudo)
+sudo dpkg -i desktop-app/build/outputs/linux/cloudstream-desktop_*.deb
+cloudstream --version && cloudstream --diagnostics
+sudo dpkg -r cloudstream-desktop
+
+# 6. Tag a release; CI then builds, tests, packages and uploads all formats
+git tag linux-v0.1.9 && git push origin linux-v0.1.9
+```
+
+The packaged launcher resolves the native bridge from
+`lib/app/resources/jni/libplayer_bridge.so` inside the runtime image. The
+`cloudstream` launcher (DEB/RPM) and `AppRun` (AppImage/tar.gz) export
+`VLC_PLUGIN_PATH` when a bundled plugin directory exists; otherwise libVLC
+discovers the system plugins through `libvlccore`.
+
+### Linux update channel
+
+Linux builds use the Linux fork's GitHub Releases only and never read the
+upstream Windows release channel. The channel is configured to
+`AMRGAMAL-1/CloudStream-Desktop-Linux` (see `LINUX_UPDATE_REPO` in
+`desktop-app/src/main/kotlin/com/lagradost/cloudstream3/desktop/AppConfig.kt`;
+dev builds can override it with `-Dcloudstream.linux.update.repo=owner/repo`).
+Publish Linux releases with tags such as `linux-v0.1.10`; the Linux client
+accepts only `linux-v<version>` tags, so Windows releases can never be
+offered to Linux users. Until the first tagged Linux release exists, update
+checks simply find nothing and stay quiet by design.
 
 ---
 
@@ -53,7 +142,24 @@ cd CS3-desktop-client-unofficial
 ---
 
 ### Step 2: Native Binaries Setup (MPV)
-The video player requires the 64-bit native `libmpv-2.dll` placed in `desktop-app/appResources/windows/mpv/`.
+On Linux, install the native dependencies instead of downloading Windows DLLs:
+
+```bash
+sudo apt install libmpv-dev libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+```
+
+The Linux JNI bridge is built automatically by Gradle on Linux, or manually with:
+
+```bash
+cd desktop-app/src/main/cpp
+JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")" bash build_jni.sh
+```
+
+The current embedded AWT/MPV surface is validated through X11/XWayland. Native
+Wayland child-surface embedding remains a separate platform boundary because the
+existing MPV `wid` contract is X11-based.
+
+On Windows, the video player requires the 64-bit native `libmpv-2.dll` placed in `desktop-app/appResources/windows/mpv/`.
 
 Because `libmpv-2.dll` (~112 MB) exceeds GitHub's 100 MB single-file repository limit, it is not bundled directly in git.
 

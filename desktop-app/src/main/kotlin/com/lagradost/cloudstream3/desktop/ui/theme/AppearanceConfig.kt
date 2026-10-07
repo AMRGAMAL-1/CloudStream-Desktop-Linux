@@ -16,6 +16,20 @@ enum class ThemeMode(val label: String) {
     AMOLED("Pure AMOLED"),
 }
 
+enum class ArabicFontChoice(val id: String, val label: String) {
+    NONE("none", "Use selected app font"),
+    COCON("cocon", "Cocon"),
+    PNU_BOLD("pnu-bold", "PNU Bold"),
+    ;
+
+    companion object {
+        fun fromString(value: String?): ArabicFontChoice {
+            return entries.firstOrNull { it.id.equals(value, ignoreCase = true) }
+                ?: NONE
+        }
+    }
+}
+
 enum class PosterTitlePosition {
     INSIDE,
     BELOW,
@@ -173,6 +187,8 @@ object AppearanceConfig {
     private const val PREF_HERO_BACKDROP_DARKENING = "pref_hero_backdrop_darkening"
     private const val PREF_DOCK_POSITION = "pref_dock_position"
     private const val PREF_FONT = "pref_font"
+    private const val PREF_ARABIC_FONT_ENABLED = "pref_arabic_font_enabled"
+    private const val PREF_ARABIC_FONT = "pref_arabic_font"
     private const val PREF_SCREENSAVER_ENABLED = "pref_screensaver_enabled"
     private const val PREF_HERO_AUTO_SLIDE_DELAY = "pref_hero_auto_slide_delay"
     private const val PREF_CONTINUE_WATCHING_STYLE = "pref_continue_watching_style"
@@ -292,6 +308,13 @@ object AppearanceConfig {
     val dockPosition: StateFlow<DockPosition> = _dockPosition.asStateFlow()
     private val _selectedFont = MutableStateFlow(DesktopDataStore.getKey<String>(PREF_FONT) ?: "Plus Jakarta Sans")
     val selectedFont: StateFlow<String> = _selectedFont.asStateFlow()
+    private val _arabicFontChoice = MutableStateFlow(
+        DesktopDataStore.getKey<String>(PREF_ARABIC_FONT)?.let { ArabicFontChoice.fromString(it) }
+            ?: if (DesktopDataStore.getKey<Boolean>(PREF_ARABIC_FONT_ENABLED) ?: true) ArabicFontChoice.COCON else ArabicFontChoice.NONE,
+    )
+    val arabicFontChoice: StateFlow<ArabicFontChoice> = _arabicFontChoice.asStateFlow()
+    private val _arabicFontEnabled = MutableStateFlow(_arabicFontChoice.value != ArabicFontChoice.NONE)
+    val arabicFontEnabled: StateFlow<Boolean> = _arabicFontEnabled.asStateFlow()
     private val _screensaverEnabled = MutableStateFlow(DesktopDataStore.getKey<Boolean>(PREF_SCREENSAVER_ENABLED) ?: true)
     val screensaverEnabled: StateFlow<Boolean> = _screensaverEnabled.asStateFlow()
     private val _heroAutoSlideDelaySeconds = MutableStateFlow(DesktopDataStore.getKey<Int>(PREF_HERO_AUTO_SLIDE_DELAY) ?: 10)
@@ -546,6 +569,22 @@ object AppearanceConfig {
     fun setSelectedFont(font: String) {
         _selectedFont.value = font
         persist(PREF_FONT, font)
+    }
+
+    fun setArabicFontEnabled(enabled: Boolean) {
+        val choice = if (enabled) {
+            _arabicFontChoice.value.takeIf { it != ArabicFontChoice.NONE } ?: ArabicFontChoice.COCON
+        } else {
+            ArabicFontChoice.NONE
+        }
+        setArabicFontChoice(choice)
+    }
+
+    fun setArabicFontChoice(choice: ArabicFontChoice) {
+        _arabicFontChoice.value = choice
+        _arabicFontEnabled.value = choice != ArabicFontChoice.NONE
+        persist(PREF_ARABIC_FONT, choice.id)
+        persist(PREF_ARABIC_FONT_ENABLED, choice != ArabicFontChoice.NONE)
     }
 
     fun setScreensaverEnabled(enabled: Boolean) {
@@ -966,6 +1005,9 @@ object AppearanceConfig {
         _dockItemOrder.value = DockItemKey.parseOrder(DesktopDataStore.getKey<String>(PREF_DOCK_ITEM_ORDER))
         _dockDisabledItems.value = DockItemKey.parseDisabled(DesktopDataStore.getKey<String>(PREF_DOCK_DISABLED_ITEMS))
         _selectedFont.value = DesktopDataStore.getKey<String>(PREF_FONT) ?: "Plus Jakarta Sans"
+        _arabicFontChoice.value = DesktopDataStore.getKey<String>(PREF_ARABIC_FONT)?.let { ArabicFontChoice.fromString(it) }
+            ?: if (DesktopDataStore.getKey<Boolean>(PREF_ARABIC_FONT_ENABLED) ?: true) ArabicFontChoice.COCON else ArabicFontChoice.NONE
+        _arabicFontEnabled.value = _arabicFontChoice.value != ArabicFontChoice.NONE
         _screensaverEnabled.value = DesktopDataStore.getKey<Boolean>(PREF_SCREENSAVER_ENABLED) ?: true
         _heroAutoSlideDelaySeconds.value = DesktopDataStore.getKey<Int>(PREF_HERO_AUTO_SLIDE_DELAY) ?: 10
         _heroBannerStyle.value = HeroBannerStyle.fromString(DesktopDataStore.getKey<String>(PREF_HERO_BANNER_STYLE))

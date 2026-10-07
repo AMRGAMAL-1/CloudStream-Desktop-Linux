@@ -15,11 +15,39 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.URI
 import java.util.concurrent.atomic.AtomicReference
 
 object GlobalMediaLauncher {
     var showNetworkStreamDialog by mutableStateOf(false)
     val globalPlayerLauncher = AtomicReference<((VideoLaunchData) -> Unit)?>(null)
+    private val pendingLocalFile = AtomicReference<File?>(null)
+
+    /**
+     * Accept a local file passed by the desktop entry's %U placeholder.
+     * Network URLs and unsupported URI schemes are intentionally ignored here;
+     * they have separate, explicit in-app flows.
+     */
+    fun queueInitialMediaArgument(argument: String) {
+        val trimmed = argument.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("-")) return
+
+        val candidate = runCatching {
+            if (trimmed.startsWith("file:", ignoreCase = true)) {
+                File(URI(trimmed))
+            } else {
+                // Desktop environments may pass a raw path containing spaces.
+                // Treat it as a path first; non-local URLs simply fail isFile.
+                File(trimmed)
+            }
+        }.getOrNull()
+
+        if (candidate?.isFile == true) {
+            pendingLocalFile.set(candidate)
+        }
+    }
+
+    fun consumePendingLocalFile(): File? = pendingLocalFile.getAndSet(null)
 
     fun openLocalFileDialog(
         scope: CoroutineScope = com.lagradost.cloudstream3.desktop.utils.appScope,

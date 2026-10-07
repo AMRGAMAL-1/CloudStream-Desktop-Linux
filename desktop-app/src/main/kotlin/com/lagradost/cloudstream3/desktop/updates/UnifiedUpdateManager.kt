@@ -122,7 +122,14 @@ object UnifiedUpdateManager {
 
     suspend fun checkAppUpdate(force: Boolean = false): PendingUpdate? = withContext(Dispatchers.IO) {
         try {
-            val url = "https://api.github.com/repos/${AppConfig.GITHUB_REPO}/releases?per_page=5"
+            val repository = AppUpdateChannel.repository()
+            if (repository == null) {
+                AppLogger.i("UnifiedUpdateManager", AppUpdateChannel.statusDescription())
+                _availableUpdates.update { list -> list.filterNot { it.id == "app_client" } }
+                return@withContext null
+            }
+
+            val url = "https://api.github.com/repos/$repository/releases?per_page=20"
             val req = Request.Builder()
                 .url(url)
                 .header("Accept", "application/vnd.github.v3+json")
@@ -132,8 +139,23 @@ object UnifiedUpdateManager {
                 if (response.isSuccessful) {
                     val body = response.body?.string() ?: return@withContext null
                     val releases = mapper.readValue<List<GitHubApiRelease>>(body)
-                    val release = releases.firstOrNull { !it.draft } ?: return@withContext null
-                    val remoteVersion = release.tag_name.removePrefix("v")
+                    val release = releases
+                        .filter {
+                            AppUpdateChannel.isSupportedRelease(
+                                it.tag_name,
+                                it.draft,
+                                it.prerelease,
+                            )
+                        }
+                        .maxWithOrNull { left, right ->
+                            compareSemVer(
+                                AppUpdateChannel.releaseVersion(left.tag_name).orEmpty(),
+                                AppUpdateChannel.releaseVersion(right.tag_name).orEmpty(),
+                            )
+                        }
+                        ?: return@withContext null
+                    val remoteVersion = AppUpdateChannel.releaseVersion(release.tag_name)
+                        ?: return@withContext null
                     val currentVersion = AppConfig.APP_VERSION
 
                     if (compareSemVer(remoteVersion, currentVersion) > 0) {

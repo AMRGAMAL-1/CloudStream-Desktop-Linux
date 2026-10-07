@@ -1,5 +1,7 @@
 package com.lagradost.cloudstream3.desktop.ui.screens.settings
 
+import com.lagradost.cloudstream3.desktop.ui.components.ArabicAwareText
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -39,7 +41,7 @@ fun SettingsAbout() {
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f),
                 ) {
-                    Text(
+                    ArabicAwareText(
                         "UNOFFICIAL DESKTOP CLIENT",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
@@ -49,13 +51,46 @@ fun SettingsAbout() {
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "An independent, desktop-native client powered by the CloudStream core engine. For desktop support and bug reports, use our Discord community below.",
+                ArabicAwareText(
+                    "An independent Linux edition of CloudStream Desktop, adapted and enhanced by AMR GAMAL for a smooth desktop experience.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                ArabicAwareText(
+                    "Built with care for Linux users who love CloudStream.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
+        }
+
+        SettingsGroupCard(title = "Developer & Linux Edition Maintainer") {
+            SettingsNavigationItem(
+                label = "AMR GAMAL",
+                subtitle = "Developer & Linux Edition Maintainer",
+                onClick = {},
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            SettingsNavigationItem(
+                label = "Telegram Channel",
+                subtitle = "@AMRGAMAL_STORE",
+                onClick = { openUrl("https://t.me/AMRGAMAL_STORE") },
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            SettingsNavigationItem(
+                label = "Telegram Community",
+                subtitle = "@AMRGAMAL_CHAT",
+                onClick = { openUrl("https://t.me/AMRGAMAL_CHAT") },
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            SettingsNavigationItem(
+                label = "Personal Telegram",
+                subtitle = "@AMRGAMAL1",
+                onClick = { openUrl("https://t.me/AMRGAMAL1") },
+            )
         }
 
         SettingsGroupCard(title = "Desktop Community & Support") {
@@ -113,7 +148,7 @@ fun SettingsAbout() {
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
-                            Text(
+                            ArabicAwareText(
                                 text = "IMPORTANT LEGAL NOTICE — PLEASE READ CAREFULLY",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
@@ -124,7 +159,7 @@ fun SettingsAbout() {
 
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 
-                        Text(
+                        ArabicAwareText(
                             text = "1. Pure Browser Shell & Zero Bundled Media\n" +
                                 "This software is strictly an open-source, media-neutral desktop browser shell and video player. It does NOT host, own, create, index, scrape, transmit, or distribute any media files, video streams, torrents, or content of any kind. Out of the box, this application contains no media catalog, no streaming repositories, and no content.",
                             style = MaterialTheme.typography.bodySmall,
@@ -132,7 +167,7 @@ fun SettingsAbout() {
                             lineHeight = 18.sp,
                         )
 
-                        Text(
+                        ArabicAwareText(
                             text = "2. User-Provided Extensions & Third-Party Repositories\n" +
                                 "All plugins, extensions, addon manifests, external links, and media sources loaded into this application are configured and added entirely by the user at their own sole discretion. The developers and contributors do not author, maintain, verify, control, or endorse any external repositories, plugins, or third-party streaming sources.",
                             style = MaterialTheme.typography.bodySmall,
@@ -140,7 +175,7 @@ fun SettingsAbout() {
                             lineHeight = 18.sp,
                         )
 
-                        Text(
+                        ArabicAwareText(
                             text = "3. Sole User Responsibility & Legal Compliance\n" +
                                 "Users are exclusively and solely responsible for their use of this software. You must ensure that your access, playback, or usage of any media or third-party services complies fully with all applicable local, state, national, and international laws, copyright regulations, and intellectual property rights in your jurisdiction.",
                             style = MaterialTheme.typography.bodySmall,
@@ -148,7 +183,7 @@ fun SettingsAbout() {
                             lineHeight = 18.sp,
                         )
 
-                        Text(
+                        ArabicAwareText(
                             text = "4. \"As-Is\" Software & Limitation of Liability\n" +
                                 "This software is provided \"AS IS\", without warranty of any kind, express or implied. Under no circumstances shall the authors, maintainers, or copyright holders be held liable for any claim, damages, copyright infringement, or legal consequences arising from the use, installation, or misuse of this software.",
                             style = MaterialTheme.typography.bodySmall,

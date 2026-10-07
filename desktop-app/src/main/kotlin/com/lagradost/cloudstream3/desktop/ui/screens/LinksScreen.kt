@@ -52,10 +52,8 @@ import com.lagradost.cloudstream3.desktop.ui.screens.links.contract.LinksUiEffec
 import com.lagradost.cloudstream3.desktop.ui.screens.links.contract.LinksUiEvent
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.common.storage.WatchHistory
-import com.lagradost.player.impl.VlcPlayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,18 +67,10 @@ fun LinksSidePanel(
     enrichedBackdropUrl: String? = null,
     onClose: () -> Unit,
 ) {
-    val coroutineScope = rememberCoroutineScope()
     val viewModel = remember { LinksViewModel() }
     DisposableEffect(viewModel) {
         onDispose {
             viewModel.dispose()
-        }
-    }
-
-    val vlcPlayer = remember { VlcPlayer() }
-    DisposableEffect(vlcPlayer) {
-        onDispose {
-            vlcPlayer.destroy()
         }
     }
 
@@ -90,7 +80,6 @@ fun LinksSidePanel(
     val isScraping = uiState.isScraping
 
     val playVideo = com.lagradost.cloudstream3.desktop.ui.LocalVideoPlayer.current
-    val isVideoPlayerActive = com.lagradost.cloudstream3.desktop.ui.LocalVideoPlayerActive.current
     val selectedPlayer = uiState.preferredPlayer
     val isLaunchingPlayer = uiState.isLaunchingPlayer
     val playerLaunchError = uiState.playerLaunchError
@@ -108,17 +97,6 @@ fun LinksSidePanel(
             when (effect) {
                 is LinksUiEffect.ShowToast -> {
                     com.lagradost.cloudstream3.desktop.ui.components.AppToastManager.showInfo(effect.message)
-                }
-                is LinksUiEffect.LaunchVlc -> {
-                    coroutineScope.launch {
-                        val result = vlcPlayer.play(effect.link, effect.displayTitle, effect.subtitles, effect.startMs)
-                        if (!result.isSuccess) {
-                            viewModel.onEvent(LinksUiEvent.OnStatusTextChanged("Could not start player."))
-                            viewModel.onEvent(LinksUiEvent.OnPlayerLaunchFinished("Could not start player."))
-                        } else {
-                            viewModel.onEvent(LinksUiEvent.OnPlayerLaunchFinished(null))
-                        }
-                    }
                 }
                 is LinksUiEffect.LaunchEmbeddedPlayer -> {
                     viewModel.onEvent(LinksUiEvent.OnPlayerLaunchFinished(null))
@@ -238,44 +216,12 @@ fun LinksSidePanel(
         )
     }
 
-    val vlcState = vlcPlayer.state.collectAsState().value
-    val isAnyPlaying = vlcState.isPlaying
-    LaunchedEffect(vlcState.position) {
-        val posMs = if (vlcState.isPlaying) vlcState.position else 0L
-        val durMs = if (vlcState.isPlaying) vlcState.duration else 0L
-        if (posMs > 0 && durMs > 0) {
-            val posSec = posMs / 1000L
-            if (kotlin.math.abs(posSec - uiState.lastVlcSavedPositionSec) >= 5) {
-                viewModel.onEvent(LinksUiEvent.OnUpdateVlcSavedPosition(posSec))
-                viewModel.onEvent(LinksUiEvent.OnSaveWatchPosition(history, posMs, durMs))
-            }
-        }
-    }
-
-    DisposableEffect(isAnyPlaying) {
-        onDispose {
-            if (!isAnyPlaying && vlcState.position > 0 && vlcState.duration > 0) {
-                viewModel.onEvent(LinksUiEvent.OnSaveWatchPosition(history, vlcState.position, vlcState.duration))
-            }
-        }
-    }
-
-    LaunchedEffect(isAnyPlaying, isVideoPlayerActive) {
-        if (!isAnyPlaying && !isVideoPlayerActive) {
-            if (statusText == "Player started." || statusText.startsWith("Playing:")) {
-                viewModel.onEvent(LinksUiEvent.OnStatusTextChanged("Ready — ${links.size} stream${if (links.size == 1) "" else "s"} available."))
-            }
-            viewModel.onEvent(LinksUiEvent.OnPlayerLaunchFinished(null))
-        }
-    }
-
-    LaunchedEffect(vlcState.error, uiState.embeddedError) {
-        val errorMessage = vlcState.error ?: uiState.embeddedError
+    LaunchedEffect(uiState.embeddedError) {
+        val errorMessage = uiState.embeddedError
         if (errorMessage != null) {
             val autoPlay = uiState.autoPlayEnabled
             val currentIndex = filteredLinks.indexOfFirst { it.url == currentPlayingUrl }
-            val isVlcError = vlcState.error != null
-            if (autoPlay && isVlcError && currentIndex != -1 && currentIndex + 1 < filteredLinks.size) {
+            if (autoPlay && currentIndex != -1 && currentIndex + 1 < filteredLinks.size) {
                 val nextLink = filteredLinks[currentIndex + 1]
                 viewModel.onEvent(LinksUiEvent.OnStatusTextChanged("Link failed. Auto-trying next: ${nextLink.name}"))
                 viewModel.onEvent(LinksUiEvent.OnSetEmbeddedError(null))
@@ -830,6 +776,4 @@ internal data class SourceOption(
     val count: Int,
     val isAddon: Boolean = false,
 )
-
-
 

@@ -36,5 +36,4 @@ sealed interface LinksUiEvent : UiEvent {
     data class OnP2pEnabledChanged(val enabled: Boolean) : LinksUiEvent
     data class OnSetEmbeddedError(val error: String?) : LinksUiEvent
     data class OnSetLinkToDownload(val link: com.lagradost.cloudstream3.utils.ExtractorLink?) : LinksUiEvent
-    data class OnUpdateVlcSavedPosition(val posSec: Long) : LinksUiEvent
 }

@@ -21,5 +21,4 @@ data class LinksUiState(
     val isP2pEnabled: Boolean = false,
     val embeddedError: String? = null,
     val linkToDownload: ExtractorLink? = null,
-    val lastVlcSavedPositionSec: Long = 0L,
 ) : UiState

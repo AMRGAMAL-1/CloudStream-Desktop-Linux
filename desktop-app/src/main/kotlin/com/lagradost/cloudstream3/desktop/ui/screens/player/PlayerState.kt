@@ -8,6 +8,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class PlayerState {
+    internal interface VlcController {
+        fun togglePause()
+        fun pause()
+        fun play()
+        fun seekTo(positionMs: Long)
+        fun seekBy(offsetMs: Long)
+        fun setVolume(volume: Float)
+        fun setSpeed(speed: Float)
+        fun setMute(muted: Boolean)
+        fun executeCommand(command: String)
+        fun setProperty(property: String, value: String)
+    }
+
     internal val _positionMs = MutableStateFlow(0L)
     val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
     internal val _durationMs = MutableStateFlow(0L)
@@ -107,6 +120,7 @@ class PlayerState {
     val showStats: StateFlow<Boolean> = _showStats.asStateFlow()
 
     private var engine: DesktopMpvEngine? = null
+    private var vlcController: VlcController? = null
     val attachedEngine: DesktopMpvEngine? get() = engine
 
     internal var lastSeekTime = 0L
@@ -118,6 +132,7 @@ class PlayerState {
     }
 
     fun attachEngine(engine: DesktopMpvEngine) {
+        vlcController = null
         this.engine = engine
         engine.playerState = this
     }
@@ -129,12 +144,27 @@ class PlayerState {
         this.engine = null
     }
 
+    internal fun attachVlcController(controller: VlcController) {
+        detachEngine()
+        vlcController = controller
+    }
+
+    internal fun detachVlcController(controller: VlcController? = null) {
+        if (controller == null || vlcController === controller) {
+            vlcController = null
+        }
+    }
+
     fun attachMpv(handle: com.sun.jna.Pointer) {
         // Kept for backward compatibility during migration
     }
 
     fun detachMpv() {
-        // Kept for backward compatibility during migration
+        // The ViewModel can start disposing before BaseMpvPlayer's Canvas
+        // removeNotify() runs. Detach the reference here as well so queued
+        // app-wide player commands cannot reach an MPV handle that is already
+        // on its native teardown path.
+        detachEngine()
     }
 
     fun getNativeHandleValue(): Long? = engine?.nativeHandleValue
@@ -174,17 +204,17 @@ class PlayerState {
     }
 
     fun togglePlayPause() {
-        engine?.togglePause()
+        vlcController?.togglePause() ?: engine?.togglePause()
         _isPaused.value = !isPaused.value
     }
 
     fun pause() {
-        engine?.pause()
+        vlcController?.pause() ?: engine?.pause()
         _isPaused.value = true
     }
 
     fun play() {
-        engine?.play()
+        vlcController?.play() ?: engine?.play()
         _isPaused.value = false
     }
 
@@ -197,7 +227,7 @@ class PlayerState {
                 processedAutoSkipIntervals.add("${inv.startMs}_${inv.endMs}_${inv.type}")
             }
         }
-        engine?.seekTo(positionMs)
+        vlcController?.seekTo(positionMs) ?: engine?.seekTo(positionMs)
         this._positionMs.value = positionMs
     }
 
@@ -219,7 +249,7 @@ class PlayerState {
     fun seekBy(offsetMs: Long) {
         lastSeekTime = System.currentTimeMillis()
         targetSeekMs = this.positionMs.value + offsetMs
-        engine?.seekBy(offsetMs)
+        vlcController?.seekBy(offsetMs) ?: engine?.seekBy(offsetMs)
         this._positionMs.value = targetSeekMs
     }
 
@@ -237,7 +267,7 @@ class PlayerState {
         val maxVol = if (isVolumeMaxOn) 200f else 100f
         val coerced = volume.coerceIn(0f, maxVol)
         _volume.value = coerced
-        engine?.setVolume(coerced.toDouble())
+        vlcController?.setVolume(coerced) ?: engine?.setVolume(coerced.toDouble())
         com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_VOLUME, coerced)
         }
@@ -245,7 +275,7 @@ class PlayerState {
 
     fun setPlaybackSpeed(speed: Float) {
         _playbackSpeed.value = speed
-        engine?.setSpeed(speed.toDouble())
+        vlcController?.setSpeed(speed) ?: engine?.setSpeed(speed.toDouble())
         com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_PLAYBACK_SPEED, speed)
         }
@@ -387,20 +417,20 @@ class PlayerState {
     }
 
     fun cycleSubtitles() {
-        engine?.executeCommand("cycle sub")
+        vlcController?.executeCommand("cycle sub") ?: engine?.executeCommand("cycle sub")
     }
 
     fun toggleSubtitleVisibility() {
-        engine?.executeCommand("cycle sub-visibility")
+        vlcController?.executeCommand("cycle sub-visibility") ?: engine?.executeCommand("cycle sub-visibility")
     }
 
     fun seekLive() {
-        engine?.executeCommand("seek 100 absolute-percent")
+        vlcController?.executeCommand("seek 100 absolute-percent") ?: engine?.executeCommand("seek 100 absolute-percent")
         play()
     }
 
     fun executeCommand(command: String) {
-        engine?.executeCommand(command)
+        vlcController?.executeCommand(command) ?: engine?.executeCommand(command)
     }
 
     fun takeScreenshot(filepath: String) {
@@ -412,7 +442,7 @@ class PlayerState {
     fun toggleMute() {
         val nextMuted = !isMuted.value
         _isMuted.value = nextMuted
-        engine?.setMute(nextMuted)
+        vlcController?.setMute(nextMuted) ?: engine?.setMute(nextMuted)
         com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_MUTED, nextMuted)
         }
@@ -420,7 +450,7 @@ class PlayerState {
 
     fun setMute(isMuted: Boolean) {
         _isMuted.value = isMuted
-        engine?.setMute(isMuted)
+        vlcController?.setMute(isMuted) ?: engine?.setMute(isMuted)
         com.lagradost.cloudstream3.desktop.utils.appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             com.lagradost.common.storage.DesktopDataStore.setKey(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUDIO_MUTED, isMuted)
         }
@@ -710,7 +740,7 @@ class PlayerState {
     }
 
     fun setMpvProperty(property: String, value: String) {
-        engine?.setPropertyString(property, value)
+        vlcController?.setProperty(property, value) ?: engine?.setPropertyString(property, value)
     }
 
     fun updateAudioFilters() {
@@ -753,6 +783,3 @@ class PlayerState {
         }
     }
 }
-
-
-

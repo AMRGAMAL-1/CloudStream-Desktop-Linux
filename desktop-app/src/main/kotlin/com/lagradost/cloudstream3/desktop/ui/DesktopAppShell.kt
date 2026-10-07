@@ -418,8 +418,6 @@ fun DesktopAppShell(
                     }
                 }
 
-                com.lagradost.cloudstream3.desktop.ui.components.ProfileWelcomeToast()
-
             if (showDock) {
                 if (isCompact) {
                     MobileBottomNavBar(
@@ -752,4 +750,3 @@ private fun MobileTabItem(
         )
     }
 }
-

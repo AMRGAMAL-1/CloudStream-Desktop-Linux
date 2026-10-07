@@ -29,14 +29,27 @@ if(WIN32)
         SUFFIX ".dll"
     )
 elseif(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+    find_package(X11 REQUIRED)
+    pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+    pkg_check_modules(WEBKITGTK REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
+    # The bridge uses MPV's client/render headers but resolves its symbols at
+    # runtime. Keep libmpv out of DT_NEEDED so Java/JNA and the bridge share
+    # one selected system ABI instead of loading two copies.
+    pkg_check_modules(MPV REQUIRED mpv)
+
     set(SOURCES
         common/mpv_core.cpp
         linux/surface_linux.cpp
     )
     
     add_library(player_bridge SHARED ${SOURCES})
+    target_include_directories(player_bridge PRIVATE ${MPV_INCLUDE_DIRS})
     target_link_libraries(player_bridge PRIVATE
         pthread dl
+        X11::X11
+        PkgConfig::GTK3
+        PkgConfig::WEBKITGTK
     )
     set_target_properties(player_bridge PROPERTIES
         PREFIX "lib"

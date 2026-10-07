@@ -6,7 +6,9 @@
     </appender>
 
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-        <file>${user.home}/AppData/Roaming/CloudStreamDesktop/logs/app.log</file>
+        <!-- The application overrides cloudstream.log.file at startup with the
+             OS-appropriate path (APPDATA on Windows, XDG_STATE_HOME on Linux). -->
+        <file>${cloudstream.log.file:-${user.home}/AppData/Roaming/CloudStreamDesktop/logs/app.log}</file>
         <append>false</append>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>

@@ -13,7 +13,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.lagradost.cloudstream3.desktop.ui.theme.OutfitFontFamily
+import com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily
 
 /**
  * Text title displayed when no image logo is available.
@@ -32,7 +32,7 @@ fun CinematicTitle(
     Text(
         text = text,
         style = TextStyle(
-            fontFamily = OutfitFontFamily,
+            fontFamily = getFontFamily("Outfit"),
             fontWeight = FontWeight.Black,
             fontSize = fontSize,
             lineHeight = fontSize * 1.12f,

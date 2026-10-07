@@ -470,7 +470,11 @@ class SettingsViewModel : BaseMviViewModel<SettingsUiState, SettingsUiEvent, Set
                     ).start()
                 } else {
                     ProcessBuilder(
-                        "sh", "-c", "sleep 1 && rm -rf \"${target.absolutePath}\""
+                        "/bin/sh",
+                        "-c",
+                        "sleep 1 && exec rm -rf -- \"\$1\"",
+                        "cloudstream-factory-reset",
+                        target.absolutePath,
                     ).start()
                 }
             } catch (_: Throwable) {}

@@ -23,6 +23,40 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     }
 }
 
+val isLinuxHost = System.getProperty("os.name", "").contains("linux", ignoreCase = true)
+val isWindowsHost = System.getProperty("os.name", "").contains("win", ignoreCase = true)
+val requiredRuntimeModules = listOf(
+    "java.base",
+    "java.desktop",
+    "java.instrument",
+    "java.logging",
+    "java.management",
+    "java.naming",
+    "java.net.http",
+    "java.prefs",
+    "java.scripting",
+    "java.sql",
+    "java.xml",
+    "jdk.dynalink",
+    "jdk.unsupported",
+    "jdk.crypto.ec",
+    "jdk.crypto.cryptoki",
+    "jdk.management",
+    "jdk.charsets",
+    "jdk.zipfs",
+    "java.compiler",
+    "jdk.compiler",
+    "jdk.localedata",
+) + if (isWindowsHost) listOf("jdk.crypto.mscapi") else emptyList()
+val linuxNativeBridge by tasks.registering(Exec::class) {
+    group = "native"
+    description = "Builds the Linux WebKitGTK/JNI player bridge."
+    workingDir(project.file("src/main/cpp"))
+    commandLine("bash", "build_jni.sh")
+    environment("JAVA_HOME", System.getProperty("java.home"))
+    onlyIf { isLinuxHost }
+}
+
 configurations.all {
     exclude(group = "org.slf4j", module = "slf4j-simple")
     // Override the library module's strict constraint — desktop-app is pure JVM
@@ -117,8 +151,18 @@ compose.desktop {
                 "-XX:CICompilerCount=2",
                 "-Djava.security.manager=allow",
                 "-Djava.net.preferIPv6Addresses=true",
+                // NOTE: in this jpackage layout $APPDIR resolves to the app
+                // module directory (lib/app), i.e. exactly where the resources
+                // dir and the jars live. The Compose plugin's default
+                // compose.application.resources.dir=$APPDIR/resources is
+                // already correct; do NOT prepend lib/app here.
                 "-Djava.library.path=\$APPDIR/resources/jni",
-                "-Djna.library.path=\$APPDIR/resources/mpv",
+                "-Djna.library.path=\$APPDIR/resources/jni",
+                // AppCDS: the packaging script trains app.jsa next to the jars;
+                // -Xshare:auto falls back silently when the archive is missing
+                // or the classpath changed, so this is always safe.
+                "-XX:SharedArchiveFile=\$APPDIR/app.jsa",
+                "-Xshare:auto",
                 "-Dcloudstream.version=${project.findProperty("APP_VERSION")}",
                 "-Dfile.encoding=UTF-8",
             )
@@ -134,30 +178,7 @@ compose.desktop {
             description = "CloudStream Desktop Client"
             vendor = "CloudStream"
             includeAllModules = false
-            modules(
-                "java.base",
-                "java.desktop",
-                "java.instrument",
-                "java.logging",
-                "java.management",
-                "java.naming",
-                "java.net.http",
-                "java.prefs",
-                "java.scripting",
-                "java.sql",
-                "java.xml",
-                "jdk.dynalink",
-                "jdk.unsupported", // Required by JNA & Coroutines Unsafe
-                "jdk.crypto.ec", // Required for HTTPS
-                "jdk.crypto.cryptoki",
-                "jdk.crypto.mscapi", // Required on Windows for some HTTPS cert verifications
-                "jdk.management",
-                "jdk.charsets", // Required to decode some foreign websites
-                "jdk.zipfs", // Required by dex2jar for JAR generation
-                "java.compiler", // Required by Rhino JS compiler
-                "jdk.compiler", // Required by Rhino JS compiler
-                "jdk.localedata", // Required by Rhino JS Date functions
-            )
+            modules(*requiredRuntimeModules.toTypedArray())
             appResourcesRootDir.set(project.layout.projectDirectory.dir("appResources"))
 
             windows {
@@ -167,20 +188,29 @@ compose.desktop {
                 shortcut = true // Creates a Desktop shortcut during install
                 perUserInstall = true // Installs per-user, avoids needing admin rights
             }
+
+            linux {
+                packageName = "CloudStream"
+                // RGBA (rounded) icon for the launcher; app_icon.png is a
+                // palette PNG without alpha and renders square in DE launchers.
+                iconFile.set(project.file("src/main/resources/linux_icon.png"))
+            }
         }
     }
 }
 
 tasks.matching { it.name == "run" }.configureEach {
     val runTask = this as JavaExec
+    val nativeJniDir = if (isLinuxHost) "appResources/linux/jni" else "appResources/windows/jni"
+    val nativeMpvDir = if (isLinuxHost) "appResources/linux/mpv" else "appResources/windows/mpv"
     runTask.jvmArgs(
         "-Xms256m",
         "-Xmx2048m",
         "-XX:+UseG1GC",
         "-XX:MaxGCPauseMillis=50",
         "-XX:CICompilerCount=2",
-        "-Djna.library.path=${project.file("appResources/windows/mpv").absolutePath}",
-        "-Djava.library.path=${project.file("appResources/windows/jni").absolutePath}",
+        "-Djna.library.path=${project.file(nativeMpvDir).absolutePath}",
+        "-Djava.library.path=${project.file(nativeJniDir).absolutePath}",
         "-Dcloudstream.version=${project.findProperty("APP_VERSION")}",
     )
 }
@@ -196,6 +226,7 @@ val generateInstallerVersion by tasks.registering {
 
 tasks.named("processResources") {
     dependsOn(generateInstallerVersion)
+    if (isLinuxHost) dependsOn(linuxNativeBridge)
 }
 
 tasks.withType<Test> {

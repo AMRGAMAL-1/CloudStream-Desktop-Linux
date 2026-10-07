@@ -12,6 +12,10 @@
 #include <condition_variable>
 #include <unordered_map>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 #ifdef _WIN32
 #include <windows.h>
 #include <dwmapi.h>
@@ -37,19 +41,35 @@ extern std::mutex g_logMutex;
         std::cout << msg << std::endl; \
     } while(0)
 #else
+std::string nativeLogPath();
 #define LOG_TO_FILE(msg) \
     do { \
         std::lock_guard<std::mutex> lock(g_logMutex); \
         if (!g_logFile.is_open()) { \
-            g_logFile.open("/tmp/cloudstream_native.log", std::ios::app); \
+            const std::string logPath = nativeLogPath(); \
+            g_logFile.open(logPath, std::ios::app); \
+            if (!g_logFile.is_open()) { \
+                g_logFile.clear(); \
+                g_logFile.open(nativeLogPath(), std::ios::app); \
+            } \
+            if (g_logFile.is_open()) { \
+                ::chmod(logPath.c_str(), S_IRUSR | S_IWUSR); \
+            } \
         } \
         g_logFile << msg << std::endl; \
         std::cout << msg << std::endl; \
     } while(0)
 #endif
 
-// MPV Type Definitions
+// MPV Type Definitions. Linux uses the official headers because its Render API
+// needs the complete client/render ABI. Windows keeps the local declarations
+// so the existing WebView2 bridge remains self-contained.
+#ifndef _WIN32
+#include <mpv/client.h>
+#endif
+
 extern "C" {
+#ifdef _WIN32
 typedef struct mpv_handle mpv_handle;
 typedef enum mpv_format {
     MPV_FORMAT_NONE             = 0,
@@ -68,12 +88,20 @@ typedef char*(*mpv_get_property_string_fn)(mpv_handle *ctx, const char *name);
 typedef void (*mpv_free_fn)(void *data);
 typedef int  (*mpv_command_string_fn)(mpv_handle *ctx, const char *args);
 typedef int  (*mpv_set_property_string_fn)(mpv_handle *ctx, const char *name, const char *data);
+#else
+typedef int  (*mpv_get_property_fn)(mpv_handle *ctx, const char *name, mpv_format format, void *data);
+typedef char*(*mpv_get_property_string_fn)(mpv_handle *ctx, const char *name);
+typedef void (*mpv_free_fn)(void *data);
+typedef int  (*mpv_command_string_fn)(mpv_handle *ctx, const char *args);
+typedef int  (*mpv_set_property_string_fn)(mpv_handle *ctx, const char *name, const char *data);
+#endif
 }
 
 // Global JNI & Player State
 extern JavaVM*   g_jvm;
 extern jobject   g_listener;
 extern jmethodID g_listenerMethod;
+extern std::mutex g_listenerMutex;
 
 extern mpv_handle* g_mpvHandle;
 extern std::mutex  g_mpvMutex;
@@ -90,3 +118,7 @@ extern mpv_set_property_string_fn g_mpv_set_property_string;
 void dispatchPlayerEvent(const std::wstring& message);
 void postUiTask(std::function<void()> task);
 void processUiTasks();
+#ifndef _WIN32
+void startMpvSyncPlatform();
+void stopMpvSyncPlatform();
+#endif

@@ -78,7 +78,6 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
             }
             is LinksUiEvent.OnSetEmbeddedError -> updateState { copy(embeddedError = event.error) }
             is LinksUiEvent.OnSetLinkToDownload -> updateState { copy(linkToDownload = event.link) }
-            is LinksUiEvent.OnUpdateVlcSavedPosition -> updateState { copy(lastVlcSavedPositionSec = event.posSec) }
         }
     }
 
@@ -298,7 +297,13 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
             )
         }
 
+        val embeddedVlcSupported = System.getProperty("os.name", "").contains("linux", ignoreCase = true)
         val effectivePlayer = if (state.preferredPlayer == "vlc" && com.lagradost.player.impl.PlayerLinkHandler.shouldPreferMpv(link)) {
+            "mpv"
+        } else if (state.preferredPlayer == "vlc" && !embeddedVlcSupported) {
+            // The native libVLC surface is currently Linux-only. Keep other
+            // desktop targets on the stable embedded MPV route until their
+            // native window bridge is implemented as well.
             "mpv"
         } else {
             state.preferredPlayer
@@ -311,8 +316,24 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
         val startMs = startSec * 1000L
 
         if (effectivePlayer == "vlc") {
-            val srtSubtitles = state.subtitles.filter { it.url.endsWith(".srt", ignoreCase = true) }.map { it.url }
-            sendEffect(LinksUiEffect.LaunchVlc(link, displayTitle, srtSubtitles, startMs))
+            // VLC uses the same embedded player route as MPV. The backend is
+            // carried in VideoLaunchData so the player shell, loading card,
+            // WebKit controls, and close/reopen lifecycle stay identical.
+            val initialIndex = state.links.indexOfFirst { it.url == link.url }.coerceAtLeast(0)
+            val launchData = com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(
+                links = state.links,
+                initialIndex = initialIndex,
+                title = displayTitle,
+                subtitles = state.subtitles,
+                startPositionMs = startMs,
+                history = history,
+                loadResponse = loadResponse,
+                enrichedActors = event.enrichedActors,
+                enrichedLogoUrl = event.enrichedLogoUrl,
+                enrichedBackdropUrl = event.enrichedBackdropUrl,
+                playerBackend = "vlc",
+            )
+            sendEffect(LinksUiEffect.LaunchEmbeddedPlayer(launchData))
         } else {
             val initialIndex = state.links.indexOfFirst { it.url == link.url }.coerceAtLeast(0)
             val launchData = com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(

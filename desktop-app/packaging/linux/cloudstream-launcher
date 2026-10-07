@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_root="${CLOUDSTREAM_INSTALL_ROOT:-/opt/cloudstream/CloudStream-Desktop}"
+if [[ ! -x "$app_root/bin/CloudStream-Desktop" ]]; then
+    echo "CloudStream Desktop installation is incomplete: $app_root" >&2
+    exit 127
+fi
+
+if [[ -z "${VLC_PLUGIN_PATH:-}" && -d "$app_root/lib/app/resources/vlc/plugins" ]]; then
+    export VLC_PLUGIN_PATH="$app_root/lib/app/resources/vlc/plugins"
+fi
+
+exec "$app_root/bin/CloudStream-Desktop" "$@"

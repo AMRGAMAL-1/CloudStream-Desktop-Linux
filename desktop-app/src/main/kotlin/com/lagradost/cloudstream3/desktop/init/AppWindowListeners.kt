@@ -14,15 +14,48 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.window.FrameWindowScope
+import com.lagradost.common.logging.AppLogger
 import com.lagradost.cloudstream3.desktop.ui.FullscreenController
 import java.awt.Color
 import java.awt.Dimension
+import java.awt.GraphicsEnvironment
+import java.awt.Toolkit
 import java.awt.Window
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 import javax.swing.JFrame
+import javax.swing.Timer
+
+private const val WINDOW_GEOMETRY_TAG = "WindowGeometry"
+internal const val TREELAND_RESTORE_BOUNDS_KEY = "cloudstream.treeland.restoreBounds"
+
+private fun logWindowGeometry(tag: String, window: Window) {
+    val frame = window as? JFrame
+    val contentPane = frame?.contentPane
+    val transform = window.graphicsConfiguration?.defaultTransform
+    val graphicsBounds = window.graphicsConfiguration?.bounds
+    val screenBounds = runCatching {
+        GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+    }.getOrNull()
+
+    AppLogger.i(
+        WINDOW_GEOMETRY_TAG,
+        "$tag " +
+            "visible=${window.isVisible} displayable=${window.isDisplayable} " +
+            "extendedState=${frame?.extendedState} " +
+            "window=${window.bounds} outer=${window.width}x${window.height} " +
+            "content=${contentPane?.bounds} contentSize=${contentPane?.width}x${contentPane?.height} " +
+            "insets=${window.insets} " +
+            "graphicsBounds=$graphicsBounds screenBounds=$screenBounds " +
+            "scale=${transform?.scaleX}x${transform?.scaleY} " +
+            "toolkit=${Toolkit.getDefaultToolkit()::class.java.name} " +
+            "awtToolkit=${System.getProperty("awt.toolkit")} " +
+            "display=${System.getenv("DISPLAY")} wayland=${System.getenv("WAYLAND_DISPLAY")} " +
+            "session=${System.getenv("XDG_SESSION_TYPE")}",
+    )
+}
 
 class FullscreenHelperState(
     val controller: FullscreenController,
@@ -164,7 +197,10 @@ fun rememberFullscreenHelper(): FullscreenHelperState {
 }
 
 @Composable
-fun FrameWindowScope.setupWindowBackgroundAndListeners(fullscreenController: FullscreenController) {
+fun FrameWindowScope.setupWindowBackgroundAndListeners(
+    fullscreenController: FullscreenController,
+    maximizeOnShow: Boolean = false,
+) {
     LaunchedEffect(window) {
         val black = Color(0x0D, 0x0D, 0x0D)
         window.background = black
@@ -172,6 +208,7 @@ fun FrameWindowScope.setupWindowBackgroundAndListeners(fullscreenController: Ful
         window.contentPane.background = black
         (window.contentPane as? JComponent)?.isOpaque = true
         setWindowsDarkMode(window)
+        logWindowGeometry("initial", window)
     }
 
     DisposableEffect(Unit) {
@@ -183,17 +220,60 @@ fun FrameWindowScope.setupWindowBackgroundAndListeners(fullscreenController: Ful
         }
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(window, maximizeOnShow) {
+        val maximizeTimer = if (maximizeOnShow) scheduleMaximizeWhenVisible(window) else null
+        onDispose { maximizeTimer?.stop() }
+    }
+
+    DisposableEffect(window, maximizeOnShow) {
         val contentPane = (window as? JFrame)?.contentPane
-        val listener = object : ComponentAdapter() {
+        val contentListener = object : ComponentAdapter() {
             override fun componentResized(e: ComponentEvent) {
                 fullscreenController.contentAreaPx = Pair(e.component.width, e.component.height)
             }
         }
-        contentPane?.addComponentListener(listener)
+        contentPane?.addComponentListener(contentListener)
         if (contentPane != null) {
             fullscreenController.contentAreaPx = Pair(contentPane.width, contentPane.height)
         }
-        onDispose { contentPane?.removeComponentListener(listener) }
+        onDispose {
+            contentPane?.removeComponentListener(contentListener)
+        }
     }
+}
+
+private fun requestMaximizeAfterMap(window: Window) {
+    val frame = window as? JFrame ?: return
+
+    // Treeland maximizes the XWayland frame but can leave the client surface
+    // at its original 70% size. Set the actual client bounds instead of
+    // relying on the EWMH MAXIMIZED state, which is only a state bit here.
+    val targetBounds = runCatching {
+        GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+    }.getOrNull() ?: return
+    frame.rootPane.putClientProperty(TREELAND_RESTORE_BOUNDS_KEY, java.awt.Rectangle(frame.bounds))
+    logWindowGeometry("before-maximize-request", frame)
+    frame.extendedState = JFrame.NORMAL
+    frame.maximizedBounds = targetBounds
+    frame.setBounds(targetBounds)
+    frame.validate()
+    logWindowGeometry("after-bounds-and-state-request target=$targetBounds", frame)
+}
+
+private fun scheduleMaximizeWhenVisible(window: Window): Timer? {
+    val frame = window as? JFrame ?: return null
+    var attempts = 0
+    val timer = Timer(50, null)
+    timer.addActionListener {
+        attempts++
+        if (!frame.isDisplayable || attempts > 120) {
+            timer.stop()
+        } else if (frame.isVisible) {
+            timer.stop()
+            requestMaximizeAfterMap(frame)
+        }
+    }
+    timer.isRepeats = true
+    timer.start()
+    return timer
 }

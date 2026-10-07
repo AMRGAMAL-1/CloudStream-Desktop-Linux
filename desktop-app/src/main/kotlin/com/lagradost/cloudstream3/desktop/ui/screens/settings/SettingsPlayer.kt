@@ -49,7 +49,7 @@ fun SettingsPlayerHubScreen(
 
     // Live state computations for dynamic badges
     val hwdec = uiState.stringSettings[PlayerConfig.PREF_HWDEC] ?: "auto-safe"
-    val gpuApi = uiState.stringSettings[PlayerConfig.PREF_GPU_API] ?: "d3d11"
+    val gpuApi = uiState.stringSettings[PlayerConfig.PREF_GPU_API] ?: PlayerConfig.defaultGpuApi()
     val hwdecBadge = when {
         gpuApi == "opengl" -> "OpenGL • GPU"
         hwdec == "auto-safe" -> "Auto-Safe GPU"
@@ -185,15 +185,23 @@ fun SettingsPlayerRenderingScreen(viewModel: SettingsViewModel) {
             MviSettingsDropdown(
                 key = PlayerConfig.PREF_GPU_API,
                 label = "Graphics Rendering API",
-                subtitle = "Low-level graphics pipeline (switch to OpenGL if you experience black screens on fullscreen)",
-                options = listOf(
-                    "d3d11" to "Direct3D 11 (Recommended / Fast)",
-                    "opengl" to "OpenGL (Fallback for older GPUs)",
-                    "auto" to "Auto (System Negotiated)",
-                ),
+                subtitle = "Low-level graphics pipeline selected by MPV for this platform",
+                options = if (System.getProperty("os.name", "").contains("win", ignoreCase = true)) {
+                    listOf(
+                        "d3d11" to "Direct3D 11 (Recommended / Fast)",
+                        "opengl" to "OpenGL (Fallback for older GPUs)",
+                        "auto" to "Auto (System Negotiated)",
+                    )
+                } else {
+                    listOf(
+                        "auto" to "Auto (Recommended)",
+                        "opengl" to "OpenGL",
+                        "vulkan" to "Vulkan",
+                    )
+                },
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
-                defaultValue = "d3d11",
+                defaultValue = PlayerConfig.defaultGpuApi(),
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -435,4 +443,3 @@ fun SettingsPlayerPlaybackScreen(
     viewModel: SettingsViewModel,
     onNavigateToSubScreen: (SettingsSubScreen) -> Unit = {},
 ) = SettingsPlayerHubScreen(viewModel, onNavigateToSubScreen)
-

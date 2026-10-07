@@ -60,6 +60,8 @@ data class VideoLaunchData(
     val enrichedLogoUrl: String? = null,
     val enrichedBackdropUrl: String? = null,
     val enrichedActors: List<com.lagradost.cloudstream3.ActorData>? = null,
+    /** Embedded playback backend. MPV remains the default; VLC is native on Linux. */
+    val playerBackend: String = "mpv",
 )
 
 val LocalVideoPlayer = androidx.compose.runtime.staticCompositionLocalOf<(VideoLaunchData?) -> Unit> { { } }
@@ -107,40 +109,22 @@ fun CloudstreamApp(rootComponent: RootComponent) {
     val customThemeAccent by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.customThemeAccent.collectAsState()
     val customAppThemeBackground by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.customAppThemeBackground.collectAsState()
     val uiCardOpacity by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.uiCardOpacity.collectAsState()
+    val arabicFontChoice by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.arabicFontChoice.collectAsState()
 
     val primaryColor = com.lagradost.cloudstream3.desktop.ui.theme.accentColorFromName(themeAccent, customThemeAccent)
     val desktopColors = com.lagradost.cloudstream3.desktop.ui.theme.buildDesktopColors(primaryColor, isLightMode, amoledMode, appThemeBackground, customAppThemeBackground).copy(cardOpacity = uiCardOpacity)
     val selectedFont by com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig.selectedFont.collectAsState()
-    val typography = androidx.compose.runtime.remember(selectedFont) {
+    val typography = androidx.compose.runtime.remember(selectedFont, arabicFontChoice) {
         com.lagradost.cloudstream3.desktop.ui.theme.buildTypography(
-            com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily(selectedFont),
+            com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily(selectedFont, arabicFontChoice),
         )
     }
 
-    val profiles by com.lagradost.cloudstream3.desktop.profile.ProfileManager.profiles.collectAsState()
-    val isPickerOnStartup by com.lagradost.cloudstream3.desktop.profile.ProfileManager.isPickerOnStartup.collectAsState()
-    val autoSignIn by com.lagradost.cloudstream3.desktop.profile.ProfileManager.autoSignIn.collectAsState()
-    val activeProfile by com.lagradost.cloudstream3.desktop.profile.ProfileManager.activeProfile.collectAsState()
-
-    var showStartupProfileSelect by remember {
-        mutableStateOf(
-            if (com.lagradost.cloudstream3.desktop.profile.ProfileManager.autoSignIn.value) {
-                com.lagradost.cloudstream3.desktop.profile.ProfileManager.activeProfile.value.hasPin
-            } else {
-                true
-            }
-        )
-    }
+    // Keep startup focused on the main interface. The profile manager remains
+    // available from the app shell when the user explicitly opens it.
+    var showStartupProfileSelect by remember { mutableStateOf(false) }
     var showProfileManagerModal by remember {
         mutableStateOf(false)
-    }
-
-    LaunchedEffect(Unit) {
-        if (!showStartupProfileSelect) {
-            com.lagradost.cloudstream3.desktop.profile.ProfileManager.triggerWelcomeToast(
-                com.lagradost.cloudstream3.desktop.profile.ProfileManager.activeProfile.value
-            )
-        }
     }
 
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -151,6 +135,9 @@ fun CloudstreamApp(rootComponent: RootComponent) {
             }
         }
         com.lagradost.cloudstream3.desktop.ui.GlobalMediaLauncher.globalPlayerLauncher.set(launcher)
+        com.lagradost.cloudstream3.desktop.ui.GlobalMediaLauncher.consumePendingLocalFile()?.let { file ->
+            com.lagradost.cloudstream3.desktop.ui.GlobalMediaLauncher.playLocalFile(file, coroutineScope, launcher)
+        }
         onDispose {
             com.lagradost.cloudstream3.desktop.ui.GlobalMediaLauncher.globalPlayerLauncher.set(null)
         }
@@ -181,9 +168,6 @@ fun CloudstreamApp(rootComponent: RootComponent) {
                         onNavigateHome = {
                             showStartupProfileSelect = false
                             showProfileManagerModal = false
-                            com.lagradost.cloudstream3.desktop.profile.ProfileManager.triggerWelcomeToast(
-                                com.lagradost.cloudstream3.desktop.profile.ProfileManager.activeProfile.value
-                            )
                         },
                     )
                 } else {
@@ -538,53 +522,10 @@ fun CloudstreamApp(rootComponent: RootComponent) {
                 }
             }
 
-            // Global Development Unit Watermark (Visible across every Compose screen)
-            GlobalDevelopmentWatermark(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 14.dp, bottom = 10.dp)
-                    .zIndex(99f),
-            )
         }
     }
 }
 }
-}
-
-@Composable
-private fun GlobalDevelopmentWatermark(modifier: Modifier = Modifier) {
-    val dateStr = remember {
-        java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd"))
-    }
-    Surface(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .alpha(0.40f),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(5.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-            Text(
-                text = "PRE-ALPHA • v${com.lagradost.cloudstream3.desktop.AppConfig.APP_VERSION} • $dateStr",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 10.sp,
-                    letterSpacing = 0.5.sp,
-                ),
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
 }
 
 @Suppress("DEPRECATION_ERROR")

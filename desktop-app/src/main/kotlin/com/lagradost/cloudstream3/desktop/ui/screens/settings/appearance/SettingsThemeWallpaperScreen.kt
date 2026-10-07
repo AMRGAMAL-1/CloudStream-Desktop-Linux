@@ -29,6 +29,7 @@ import com.lagradost.cloudstream3.desktop.ui.screens.settings.SettingsGroupCard
 import com.lagradost.cloudstream3.desktop.ui.screens.settings.SettingsSliderItem
 import com.lagradost.cloudstream3.desktop.ui.screens.settings.SettingsToggleItem
 import com.lagradost.cloudstream3.desktop.ui.theme.AppearanceConfig
+import com.lagradost.cloudstream3.desktop.ui.theme.ArabicFontChoice
 import com.lagradost.cloudstream3.desktop.ui.theme.BuiltInPresets
 import com.lagradost.cloudstream3.desktop.ui.theme.CustomFontManager
 import com.lagradost.cloudstream3.desktop.ui.theme.ThemeMode
@@ -46,6 +47,7 @@ fun SettingsThemeWallpaperScreen() {
     val customAppThemeBackground by AppearanceConfig.customAppThemeBackground.collectAsState()
     val activePresetId by AppearanceConfig.appPresetTheme.collectAsState()
     val selectedFont by AppearanceConfig.selectedFont.collectAsState()
+    val arabicFontChoice by AppearanceConfig.arabicFontChoice.collectAsState()
     val ambientGlowEnabled by AppearanceConfig.ambientGlowEnabled.collectAsState()
     val ambientGlowIntensity by AppearanceConfig.ambientGlowIntensity.collectAsState()
     val ambientGlowPositions by AppearanceConfig.ambientGlowPositions.collectAsState()
@@ -430,6 +432,14 @@ fun SettingsThemeWallpaperScreen() {
                 currentValue = selectedFont,
                 fontFamilyForOption = { com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily(it) },
                 onSelectionChanged = { AppearanceConfig.setSelectedFont(it) },
+            )
+
+            SettingsDropdownItem(
+                label = "Arabic text font",
+                subtitle = "Choose the Arabic typeface used throughout the application.",
+                options = ArabicFontChoice.entries.map { it to it.label },
+                currentValue = arabicFontChoice,
+                onSelectionChanged = { AppearanceConfig.setArabicFontChoice(it) },
             )
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

@@ -132,19 +132,20 @@ class EmbeddedPlayerViewModel(
         val currentDurSec = playerState.durationMs.value / 1000L
         val currentPosSec = playerState.positionMs.value / 1000L
         if (currentData != null && currentDurSec > 0 && currentPosSec > 0) {
-            val screenshotPath = "${com.lagradost.common.platform.PlatformPaths.appDataDir.absolutePath}/screenshots/history_${currentData.history.parentId}.jpg"
             val hasNextEpisode = uiState.value.hasNextEpisode
             val nextEpisodeData = uiState.value.nextEpisodeData
             val updatedHistory = currentData.history.copy(
                 position = currentPosSec,
                 duration = currentDurSec,
-                screenshotUrl = "file:///$screenshotPath",
                 updateTime = System.currentTimeMillis(),
             )
             com.lagradost.cloudstream3.desktop.utils.appScope.launch(Dispatchers.IO) {
                 try {
-                    java.io.File(screenshotPath).parentFile?.mkdirs()
-                    playerState.takeScreenshot(screenshotPath)
+                    // Do not call MPV from this app-wide disposal job. The native
+                    // surface is torn down immediately after dispose(), so a
+                    // delayed screenshot command can race mpv_terminate_destroy
+                    // and abort the process. History progress is independent of
+                    // the native player and remains safe to persist here.
                     WatchHistoryCoordinator.saveWithNextEpisodeQueue(
                         history = updatedHistory,
                         hasNextEpisode = hasNextEpisode,
@@ -153,7 +154,7 @@ class EmbeddedPlayerViewModel(
                         forceNotify = true,
                     )
                 } catch (e: Exception) {
-                    AppLogger.e("EmbeddedPlayerViewModel", "Failed to save history or screenshot on dispose", e)
+                    AppLogger.e("EmbeddedPlayerViewModel", "Failed to save history on dispose", e)
                 }
             }
         }

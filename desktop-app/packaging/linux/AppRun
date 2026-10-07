@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here="$(dirname "$(readlink -f "$0")")"
+app_root="$here/opt/cloudstream/CloudStream-Desktop"
+if [[ ! -x "$app_root/bin/CloudStream-Desktop" && -x "$here/CloudStream-Desktop/bin/CloudStream-Desktop" ]]; then
+    # Portable TAR layout: the runtime image sits next to this launcher.
+    app_root="$here/CloudStream-Desktop"
+fi
+if [[ ! -x "$app_root/bin/CloudStream-Desktop" ]]; then
+    echo "CloudStream AppImage is incomplete: $app_root" >&2
+    exit 127
+fi
+
+# AppImage intentionally leaves GTK/WebKitGTK, libmpv, libVLC and GPU drivers
+# host-provided. Bundling those ABI-sensitive stacks causes more breakage than
+# it solves; VLC plugins can still be supplied by a future bundle here.
+if [[ -z "${VLC_PLUGIN_PATH:-}" && -d "$app_root/lib/app/resources/vlc/plugins" ]]; then
+    export VLC_PLUGIN_PATH="$app_root/lib/app/resources/vlc/plugins"
+fi
+
+exec "$app_root/bin/CloudStream-Desktop" "$@"

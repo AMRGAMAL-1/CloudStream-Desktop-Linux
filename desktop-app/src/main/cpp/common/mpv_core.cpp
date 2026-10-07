@@ -1,12 +1,48 @@
 #include "../include/player_bridge_common.h"
 
+#ifndef _WIN32
+#include <codecvt>
+#include <cstdlib>
+#include <filesystem>
+#include <locale>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <X11/Xlib.h>
+#endif
+
 // Global variable definitions
 std::ofstream g_logFile;
 std::mutex g_logMutex;
 
+#ifndef _WIN32
+std::string nativeLogPath() {
+    const char* stateHome = std::getenv("XDG_STATE_HOME");
+    std::filesystem::path stateRoot;
+    if (stateHome && *stateHome && std::filesystem::path(stateHome).is_absolute()) {
+        stateRoot = stateHome;
+    } else if (const char* home = std::getenv("HOME"); home && *home) {
+        stateRoot = std::filesystem::path(home) / ".local" / "state";
+    } else {
+        stateRoot = "/tmp";
+    }
+
+    const auto logDirectory = stateRoot / "CloudStreamDesktop" / "logs";
+    std::error_code error;
+    std::filesystem::create_directories(logDirectory, error);
+    if (error) {
+        return (std::filesystem::path("/tmp") /
+            ("cloudstream_native_" + std::to_string(static_cast<unsigned long>(getuid())) + ".log")).string();
+    }
+    const auto path = logDirectory / "native.log";
+    ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+    return path.string();
+}
+#endif
+
 JavaVM*   g_jvm            = nullptr;
 jobject   g_listener       = nullptr;
 jmethodID g_listenerMethod = nullptr;
+std::mutex g_listenerMutex;
 
 mpv_handle* g_mpvHandle = nullptr;
 std::mutex  g_mpvMutex;
@@ -25,11 +61,21 @@ extern HWND     g_messageHwnd;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_jvm = vm;
+#ifndef _WIN32
+    // The bridge uses Xlib from the GTK thread and from JNI/AWT callbacks.
+    // Enable Xlib's internal locking before GTK creates or accesses its
+    // display connection so concurrent reparent/resize/fullscreen calls do
+    // not race inside Xlib.
+    if (XInitThreads() == 0) {
+        LOG_TO_FILE("[NativeBridge:Linux] XInitThreads() failed; Xlib calls must remain serialized");
+    }
+#endif
     return JNI_VERSION_1_6;
 }
 
 // JNI Event Dispatcher
 void dispatchPlayerEvent(const std::wstring& message) {
+    std::lock_guard<std::mutex> listenerLock(g_listenerMutex);
     if (!g_jvm || !g_listener || !g_listenerMethod) return;
 
     JNIEnv* env = nullptr;
@@ -44,7 +90,15 @@ void dispatchPlayerEvent(const std::wstring& message) {
     }
 
     jstring jType = env->NewStringUTF("message");
-    jstring jVal  = env->NewString((const jchar*)message.data(), (jsize)message.length());
+#ifdef _WIN32
+    jstring jVal = env->NewString((const jchar*)message.data(), (jsize)message.length());
+#else
+    // wchar_t is 32-bit on Linux; do not reinterpret it as UTF-16 JNI data.
+    // The player bridge payload is UTF-8 JSON, so convert it explicitly.
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    const std::string utf8 = converter.to_bytes(message);
+    jstring jVal = env->NewStringUTF(utf8.c_str());
+#endif
     env->CallVoidMethod(g_listener, g_listenerMethod, jType, jVal);
     env->DeleteLocalRef(jType);
     env->DeleteLocalRef(jVal);
@@ -56,6 +110,7 @@ extern "C" {
 JNIEXPORT void JNICALL Java_com_lagradost_cloudstream3_desktop_player_webview_NativePlayerBridge_setEventListener(
     JNIEnv* env, jobject thiz, jobject listener)
 {
+    std::lock_guard<std::mutex> listenerLock(g_listenerMutex);
     if (g_listener) { env->DeleteGlobalRef(g_listener); g_listener = nullptr; }
     if (listener) {
         g_listener = env->NewGlobalRef(listener);
@@ -81,6 +136,8 @@ JNIEXPORT void JNICALL Java_com_lagradost_cloudstream3_desktop_player_webview_Na
             LOG_TO_FILE("[NativeBridge] MPV native UI sync timer started");
         }
     });
+#else
+    startMpvSyncPlatform();
 #endif
 }
 
@@ -100,6 +157,8 @@ JNIEXPORT void JNICALL Java_com_lagradost_cloudstream3_desktop_player_webview_Na
             LOG_TO_FILE("[NativeBridge] MPV native UI sync timer stopped");
         }
     });
+#else
+    stopMpvSyncPlatform();
 #endif
 }
 
