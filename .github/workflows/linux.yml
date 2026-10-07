@@ -129,9 +129,15 @@ jobs:
           echo "--- AppImage ---"
           ls -la "$appimage_file"
           test -x "$appimage_file" || { echo "[FAIL] AppImage not executable"; exit 1; }
+          # Modern appimagetool (continuous) produces ELF-based AppImages
+          # (7f 45 4c 46) instead of the legacy "AI\x02" prefix.
           magic="$(head -c 4 "$appimage_file" | od -An -tx1 | tr -d ' \n')"
           echo "AppImage magic bytes: $magic"
-          test "$magic" = "41490200" || { echo "[FAIL] AppImage magic mismatch"; exit 1; }
+          case "$magic" in
+            41490200|7f454c46) echo "[ OK ] AppImage magic recognized" ;;
+            *) echo "[FAIL] AppImage magic mismatch"; exit 1 ;;
+          esac
+          file "$appimage_file"
           echo "[ OK ] all package checks passed"
 
       - name: Smoke-test package install and uninstall
