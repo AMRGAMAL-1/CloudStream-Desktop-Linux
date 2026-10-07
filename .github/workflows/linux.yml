@@ -113,11 +113,26 @@ jobs:
           deb_file="desktop-app/build/outputs/linux/cloudstream-desktop_${APP_VERSION}_amd64.deb"
           rpm_file="desktop-app/build/outputs/linux/cloudstream-desktop-${APP_VERSION}-1.x86_64.rpm"
           appimage_file="desktop-app/build/outputs/linux/CloudStream-Desktop-${APP_VERSION}-linux-x86_64.AppImage"
-          tar -tzf "$tar_file" | grep -Fx './CloudStream-Desktop/bin/CloudStream-Desktop'
-          dpkg-deb --info "$deb_file" | grep -Fx " Version: $APP_VERSION"
-          rpm -qpl "$rpm_file" | grep -Fx '/opt/cloudstream/CloudStream-Desktop/bin/CloudStream-Desktop'
-          test -x "$appimage_file"
-          test "$(od -An -tx1 -N4 "$appimage_file" | tr -d ' \n')" = "41490200"
+
+          echo "--- TAR ---"
+          tar -tzf "$tar_file" | grep -Fx './CloudStream-Desktop/bin/CloudStream-Desktop' \
+            || { echo "[FAIL] TAR entry missing"; exit 1; }
+
+          echo "--- DEB ---"
+          dpkg-deb --info "$deb_file" | grep -Fx " Version: $APP_VERSION" \
+            || { echo "[FAIL] DEB version mismatch"; exit 1; }
+
+          echo "--- RPM ---"
+          rpm -qpl "$rpm_file" | grep -Fx '/opt/cloudstream/CloudStream-Desktop/bin/CloudStream-Desktop' \
+            || { echo "[FAIL] RPM file list missing"; exit 1; }
+
+          echo "--- AppImage ---"
+          ls -la "$appimage_file"
+          test -x "$appimage_file" || { echo "[FAIL] AppImage not executable"; exit 1; }
+          magic="$(head -c 4 "$appimage_file" | od -An -tx1 | tr -d ' \n')"
+          echo "AppImage magic bytes: $magic"
+          test "$magic" = "41490200" || { echo "[FAIL] AppImage magic mismatch"; exit 1; }
+          echo "[ OK ] all package checks passed"
 
       - name: Smoke-test package install and uninstall
         shell: bash
