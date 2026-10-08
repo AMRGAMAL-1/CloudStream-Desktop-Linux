@@ -6839,3 +6839,10 @@
         }
         syncNativeOverlayVisibility();
     }
+
+    // DIAGNOSTIC: report the layout viewport size so the native bridge can
+    // verify the page lays out at the video size (an offscreen window can
+    // freeze its layout at the initial size).
+    if (window.chrome && window.chrome.webview && window.innerWidth > 0) {
+        window.chrome.webview.postMessage({ type: 'viewportDiag', value: window.innerWidth + 'x' + window.innerHeight });
+    }

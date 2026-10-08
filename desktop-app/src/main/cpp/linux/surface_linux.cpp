@@ -471,6 +471,15 @@ void onScriptMessage(WebKitUserContentManager*, WebKitJavascriptResult* result, 
             g_controlsVisible = (value == "1");
             return;
         }
+        if (eventType == "viewportDiag") {
+            static bool viewportLogged = false;
+            if (!viewportLogged) {
+                viewportLogged = true;
+                LOG_TO_FILE("[NativeBridge:Linux] page viewport: "
+                    << extractJsonString(payload, "value"));
+            }
+            return;
+        }
 
         // The shared Kotlin PlayerInboundEvent contract remains the single owner of
         // player behavior. Linux only provides the WebKit transport here.
@@ -1005,6 +1014,14 @@ gboolean compositeTick(gpointer) {
                             GDK_FRAME_CLOCK_PHASE_UPDATE |
                             GDK_FRAME_CLOCK_PHASE_LAYOUT));
             }
+        }
+        // The video plug is reparented/reshown on reveal, PiP, and fullscreen
+        // changes; those paths can re-stack the plug ABOVE the controls
+        // window, stealing its input. Re-raise the controls window periodically
+        // (cheap) so clicks keep reaching the page.
+        static guint raiseCounter = 0;
+        if ((++raiseCounter % 10) == 0) {
+            gdk_window_raise(fcWin);
         }
     }
 
