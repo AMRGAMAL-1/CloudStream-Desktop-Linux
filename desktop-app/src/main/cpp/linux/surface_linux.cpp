@@ -999,6 +999,16 @@ gboolean compositeTick(gpointer) {
                 GtkAllocation alloc = {0, 0, logicalW, logicalH};
                 gtk_widget_size_allocate(g_controlsWindow, &alloc);
                 if (g_webView) gtk_widget_size_allocate(GTK_WIDGET(g_webView), &alloc);
+                // A redirected window is never presented, so WebKit does not
+                // notice the new size and keeps serving the OLD rendered
+                // framebuffer: snapshots stay stale ("static image with wrong
+                // dimensions"). Invalidate so the page actually repaints at
+                // the new size on the next forced frame-clock cycle.
+                gdk_window_invalidate_rect(cwGdk, nullptr, FALSE);
+                GdkWindow* wvWin = gtk_widget_get_window(GTK_WIDGET(g_webView));
+                if (wvWin && wvWin != cwGdk) {
+                    gdk_window_invalidate_rect(wvWin, nullptr, FALSE);
+                }
             }
         }
     }
@@ -1033,6 +1043,12 @@ gboolean compositeTick(gpointer) {
             g_snapSurf = nullptr;
         }
         return G_SOURCE_CONTINUE;
+    }
+    // While visible, force the offscreen page to keep repainting so snapshots
+    // reflect animations, hovers and popups instead of a stale framebuffer.
+    if (g_controlsWindow) {
+        GdkWindow* visWin = gtk_widget_get_window(g_controlsWindow);
+        if (visWin) gdk_window_invalidate_rect(visWin, nullptr, FALSE);
     }
     if (!g_snapInFlight) {
         g_snapInFlight = true;
