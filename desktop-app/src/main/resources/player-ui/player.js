@@ -8,6 +8,26 @@
     };
     const send = window.send; // local alias for script-internal use
 
+    // Flicker-free overlay (root fix): report the controls page visibility to
+    // the native bridge. The bridge composites a snapshot of this page inside
+    // the mpv GL pass while it is visible, and draws nothing while hidden.
+    const syncNativeOverlayVisibility = () => {
+        try {
+            const pOvl = document.getElementById('linkProbingOverlay');
+            const vOvl = document.getElementById('videoEndedOverlay');
+            const visible =
+                (pOvl && pOvl.classList.contains('active')) ||
+                (vOvl && vOvl.style.display === 'flex') ||
+                isMenuOpen ||
+                !document.body.classList.contains('hidden-controls');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'controlsVisibility', value: visible ? '1' : '0' });
+            }
+        } catch (error) {
+            console.error('[VisibilitySync]', error);
+        }
+    };
+
     window.onerror = function(msg, url, line, col, error) {
         console.error('[WebView Error]', msg, url, line, col, error);
         try {
@@ -658,6 +678,7 @@
         } else if (shouldBeLoading) {
              if (loadingStatus) loadingStatus.innerText = getCleanLoadingText();
         }
+        syncNativeOverlayVisibility();
     }
 
     // Panel toggles
@@ -6807,3 +6828,15 @@
             if (!_uiReadyDispatched) send('ui_ready');
         }
     }, 250);
+
+    // Watch the body "hidden-controls" toggle (idle show/hide) and keep the
+    // native snapshot compositor in sync with the web UI state.
+    if (document.body) {
+        try {
+            new MutationObserver(function () { syncNativeOverlayVisibility(); })
+                .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        } catch (error) {
+            console.error('[VisibilitySync] observer failed', error);
+        }
+        syncNativeOverlayVisibility();
+    }
