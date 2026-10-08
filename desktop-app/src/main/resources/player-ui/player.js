@@ -678,7 +678,6 @@
         } else if (shouldBeLoading) {
              if (loadingStatus) loadingStatus.innerText = getCleanLoadingText();
         }
-        syncNativeOverlayVisibility();
     }
 
     // Panel toggles

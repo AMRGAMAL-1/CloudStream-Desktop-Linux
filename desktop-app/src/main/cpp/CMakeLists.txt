@@ -31,6 +31,7 @@ if(WIN32)
 elseif(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
     find_package(X11 REQUIRED)
+    find_package(OpenGL REQUIRED)
     pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
     pkg_check_modules(WEBKITGTK REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
     # The bridge uses MPV's client/render headers but resolves its symbols at
@@ -48,6 +49,7 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(player_bridge PRIVATE
         pthread dl
         X11::X11
+        ${OPENGL_LIBRARIES}
         PkgConfig::GTK3
         PkgConfig::WEBKITGTK
     )

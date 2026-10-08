@@ -55,6 +55,6 @@ echo "Compiling libplayer_bridge.so for Linux..."
     -I"$JAVA_INCLUDE_LINUX" \
     $MPV_FLAGS \
     $GTK_FLAGS \
-    -lpthread -ldl -lX11
+    -lpthread -ldl -lX11 -lGL
 
 echo "Compilation successful! SO output to: $SO_OUTPUT"

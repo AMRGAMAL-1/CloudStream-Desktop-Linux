@@ -8,10 +8,12 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/Xcomposite.h>
-#include <GL/gl.h>
 #include <mpv/render.h>
 #include <mpv/render_gl.h>
 #include <webkit2/webkit2.h>
+#define GL_GLEXT_PROTOTYPES 1
+#include <GL/gl.h>
+#include <GL/glext.h>
 #include <jsc/jsc.h>
 
 #include <algorithm>
@@ -33,6 +35,7 @@ GtkWidget* g_plug = nullptr;
 GtkWidget* g_playerOverlay = nullptr;
 GtkGLArea* g_glArea = nullptr;
 GtkWidget* g_vlcArea = nullptr;
+bool g_glContextProbed = false;   // one-time GL profile probe (root-fix phase 0.2)
 WebKitWebView* g_webView = nullptr;
 // Flicker-free overlay (root fix): the WebKit controls page lives in a
 // separate, composite-redirected (offscreen) GTK toplevel. Its snapshots are
@@ -41,16 +44,13 @@ WebKitWebView* g_webView = nullptr;
 GtkWidget* g_controlsWindow = nullptr;
 Window g_controlsXid = 0;
 bool g_controlsVisible = true;   // gate: web UI controls currently shown
-guint g_compositeTimer = 0;      // snapshot tick (~30fps while active)
+guint g_compositeTimer = 0;      // size-sync + snapshot tick while active
+// Snapshot pipeline state (Phase 3): async WebKit snapshot -> GL texture.
 bool g_snapInFlight = false;
 guint g_snapGen = 0;
 guint g_snapWaitTicks = 0;
 GCancellable* g_snapCancel = nullptr;
-cairo_surface_t* g_snapSurf = nullptr;
-GLuint g_overlayTexture = 0;
-bool g_overlayTextureValid = false;
-int g_overlayTexW = 0;
-int g_overlayTexH = 0;
+cairo_surface_t* g_snapSurf = nullptr;   // latest controls snapshot (premultiplied ARGB32)
 GMainContext* g_mainContext = nullptr;
 GMainLoop* g_mainLoop = nullptr;
 guint g_mpvSyncSource = 0;
@@ -292,250 +292,6 @@ void runJavascript(const std::string& script) {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Flicker-free overlay (root fix): WebKit snapshot -> GL texture -> composite
-// inside the mpv render pass. No transparent X window is involved, so there is
-// nothing for X11/XWayland to alpha-blend (the source of the old flicker).
-// ---------------------------------------------------------------------------
-
-struct SnapCtx {
-    void* player;   // unused placeholder; kept for future generation checks
-    guint gen;
-};
-
-// Upload a newly captured controls snapshot to the overlay GL texture. Runs on
-// the GTK thread (snapshot callback); the actual GL upload happens lazily in
-// renderMpvFrame where the GtkGLArea context is current.
-void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
-    auto* ctx = static_cast<SnapCtx*>(data);
-    guint gen = ctx->gen;
-    delete ctx;
-    GError* err = nullptr;
-    cairo_surface_t* surf =
-        webkit_web_view_get_snapshot_finish(WEBKIT_WEB_VIEW(src), res, &err);
-    if (err) g_error_free(err);
-
-    {
-        std::lock_guard<std::mutex> lock(g_lifecycleMutex);
-        if (g_teardownRequested) {
-            if (surf) cairo_surface_destroy(surf);
-            return;
-        }
-        if (gen != g_snapGen) {
-            // A watchdog reset invalidated this request; drop it.
-            if (surf) cairo_surface_destroy(surf);
-            return;
-        }
-        g_snapInFlight = false;
-        g_snapWaitTicks = 0;
-        if (!surf) return;
-        if (cairo_image_surface_get_format(surf) != CAIRO_FORMAT_ARGB32 ||
-            cairo_image_surface_get_width(surf) <= 0 ||
-            cairo_image_surface_get_height(surf) <= 0) {
-            cairo_surface_destroy(surf);
-            return;
-        }
-        // Drop snapshots taken at a stale size (captured mid-resize): the
-        // next tick requests a fresh one at the settled size.
-        if (g_controlsXid != 0) {
-            GdkWindow* cw = gtk_widget_get_window(g_controlsWindow);
-            if (cw) {
-                XWindowAttributes wa;
-                if (XGetWindowAttributes(gdk_x11_display_get_xdisplay(gdk_display_get_default()),
-                                         g_controlsXid, &wa) &&
-                    (cairo_image_surface_get_width(surf) != wa.width ||
-                     cairo_image_surface_get_height(surf) != wa.height)) {
-                    cairo_surface_destroy(surf);
-                    return;
-                }
-            }
-        }
-        cairo_surface_flush(surf);
-        if (g_snapSurf) cairo_surface_destroy(g_snapSurf);
-        g_snapSurf = surf;   // consumed by renderMpvFrame on the GL thread
-        LOG_TO_FILE("[NativeBridge:Linux] controls snapshot captured "
-            << cairo_image_surface_get_width(surf) << "x"
-            << cairo_image_surface_get_height(surf));
-    }
-}
-
-// ~30fps tick while the controls are visible: request a fresh snapshot of the
-// offscreen WebKit page. Runs on the GTK thread via g_timeout_add.
-gboolean compositeTick(gpointer) {
-    std::lock_guard<std::mutex> lock(g_lifecycleMutex);
-    if (g_teardownRequested || !g_webView) return G_SOURCE_REMOVE;
-
-    // Keep the offscreen controls window matched to the REAL video host size,
-    // even when no resize event arrives after the initial attach. The frame
-    // clock of a composite-redirected window is stalled (it is never
-    // presented), so gtk_window_resize alone never lands: force the X
-    // geometry and the widget allocation synchronously, like the plug itself.
-    if (g_controlsWindow && g_controlsXid != 0 && g_hostWindowId != 0) {
-        GdkWindow* cwGdk = gtk_widget_get_window(g_controlsWindow);
-        Display* dpy = gdk_x11_display_get_xdisplay(gdk_display_get_default());
-        XWindowAttributes hostWa;
-        if (cwGdk && dpy && XGetWindowAttributes(dpy, g_hostWindowId, &hostWa) != 0 &&
-            hostWa.width > 0 && hostWa.height > 0) {
-            int scale = gdk_window_get_scale_factor(cwGdk);
-            if (scale < 1) scale = 1;
-            const int logicalW = hostWa.width / scale;
-            const int logicalH = hostWa.height / scale;
-            XWindowAttributes cwWa;
-            const bool mismatch =
-                XGetWindowAttributes(dpy, g_controlsXid, &cwWa) == 0 ||
-                cwWa.width != logicalW || cwWa.height != logicalH;
-            if (mismatch) {
-                LOG_TO_FILE("[NativeBridge:Linux] controls mismatch: X="
-                    << cwWa.width << "x" << cwWa.height
-                    << " logical=" << logicalW << "x" << logicalH
-                    << " scale=" << scale);
-                // Set the X geometry directly (GDK's own resize can be
-                // reverted by the pending GTK layout) and request the layout
-                // phase so WebKit re-lays-out to the video size.
-                XResizeWindow(dpy, g_controlsXid,
-                              static_cast<unsigned int>(logicalW),
-                              static_cast<unsigned int>(logicalH));
-                XFlush(dpy);
-                gdk_window_resize(cwGdk, logicalW, logicalH);
-                gtk_window_resize(GTK_WINDOW(g_controlsWindow), logicalW, logicalH);
-                GtkAllocation alloc = {0, 0, logicalW, logicalH};
-                gtk_widget_size_allocate(g_controlsWindow, &alloc);
-                if (g_webView) gtk_widget_size_allocate(GTK_WIDGET(g_webView), &alloc);
-                LOG_TO_FILE("[NativeBridge:Linux] controls resize to "
-                    << logicalW << "x" << logicalH);
-            }
-        }
-    }
-
-    // The frame clock of a composite-redirected (never-presented) window is
-    // stalled: gtk_window_resize and CSS layout never apply on their own.
-    // Force the UPDATE+LAYOUT phases every tick so the page actually
-    // re-lays-out to the video size (and its animations keep running).
-    if (g_controlsWindow) {
-        GdkWindow* fcWin = gtk_widget_get_window(g_controlsWindow);
-        if (fcWin) {
-            GdkFrameClock* fc = gdk_window_get_frame_clock(fcWin);
-            if (fc) {
-                gdk_frame_clock_request_phase(
-                    fc, static_cast<GdkFrameClockPhase>(
-                            GDK_FRAME_CLOCK_PHASE_UPDATE |
-                            GDK_FRAME_CLOCK_PHASE_LAYOUT));
-            }
-        }
-    }
-
-    if (!g_controlsVisible) {
-        if (g_snapSurf) {
-            cairo_surface_destroy(g_snapSurf);
-            g_snapSurf = nullptr;
-        }
-        return G_SOURCE_CONTINUE;
-    }
-
-    if (!g_snapInFlight) {
-        g_snapInFlight = true;
-        g_snapWaitTicks = 0;
-        if (!g_snapCancel) g_snapCancel = g_cancellable_new();
-        webkit_web_view_get_snapshot(
-            g_webView, WEBKIT_SNAPSHOT_REGION_VISIBLE,
-            WEBKIT_SNAPSHOT_OPTIONS_TRANSPARENT_BACKGROUND,
-            g_snapCancel, onOverlaySnapshot, new SnapCtx{nullptr, g_snapGen});
-    } else if (++g_snapWaitTicks > 30) {
-        // Watchdog: a hung web process never calls back. Cancel, bump the
-        // generation so a late callback is dropped, and retry after backoff.
-        g_snapGen++;
-        if (g_snapCancel) {
-            g_cancellable_cancel(g_snapCancel);
-            g_object_unref(g_snapCancel);
-            g_snapCancel = nullptr;
-        }
-        g_snapInFlight = false;
-        g_snapWaitTicks = 0;
-        LOG_TO_FILE("[NativeBridge:Linux] snapshot stuck; watchdog reset");
-    }
-    return G_SOURCE_CONTINUE;
-}
-
-void startCompositeTimer() {
-    std::lock_guard<std::mutex> lock(g_lifecycleMutex);
-    if (g_compositeTimer == 0 && !g_teardownRequested) {
-        g_compositeTimer = g_timeout_add(33, compositeTick, nullptr);
-    }
-}
-
-void stopCompositeTimer() {
-    if (g_compositeTimer != 0) {
-        g_source_remove(g_compositeTimer);
-        g_compositeTimer = 0;
-    }
-    if (g_snapCancel) {
-        g_cancellable_cancel(g_snapCancel);
-        g_object_unref(g_snapCancel);
-        g_snapCancel = nullptr;
-    }
-    g_snapGen++;
-    g_snapInFlight = false;
-    g_snapWaitTicks = 0;
-    if (g_snapSurf) {
-        cairo_surface_destroy(g_snapSurf);
-        g_snapSurf = nullptr;
-    }
-    g_overlayTextureValid = false;
-}
-
-// Draw the captured controls snapshot as a GL texture over the video. Called
-// from renderMpvFrame with the GtkGLArea context current, AFTER mpv rendered
-// the video frame. Premultiplied alpha (cairo ARGB32) => GL_ONE blend factor.
-void drawOverlayTexture(int width, int height) {
-    if (!g_snapSurf || width <= 0 || height <= 0) return;
-    cairo_surface_t* surf = g_snapSurf;
-    const int sw = cairo_image_surface_get_width(surf);
-    const int sh = cairo_image_surface_get_height(surf);
-    if (sw <= 0 || sh <= 0) return;
-
-    if (!g_overlayTextureValid || g_overlayTexW != sw || g_overlayTexH != sh) {
-        if (g_overlayTexture) glDeleteTextures(1, &g_overlayTexture);
-        glGenTextures(1, &g_overlayTexture);
-        g_overlayTextureValid = false;
-        g_overlayTexW = sw;
-        g_overlayTexH = sh;
-    }
-    glBindTexture(GL_TEXTURE_2D, g_overlayTexture);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sw, sh, 0, GL_BGRA,
-                 GL_UNSIGNED_BYTE, cairo_image_surface_get_data(surf));
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    g_overlayTextureValid = true;
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);  // premultiplied alpha
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, g_overlayTexture);
-    glMatrixMode(GL_PROJECTION);
-    glPushMatrix();
-    glLoadIdentity();
-    glOrtho(0, width, 0, height, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glPushMatrix();
-    glLoadIdentity();
-    glBegin(GL_QUADS);
-    glColor4f(1, 1, 1, 1);
-    glTexCoord2f(0, 1); glVertex2f(0, 0);
-    glTexCoord2f(1, 1); glVertex2f(width, 0);
-    glTexCoord2f(1, 0); glVertex2f(width, height);
-    glTexCoord2f(0, 0); glVertex2f(0, height);
-    glEnd();
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_BLEND);
-    glMatrixMode(GL_PROJECTION);
-    glPopMatrix();
-    glMatrixMode(GL_MODELVIEW);
-    glPopMatrix();
-}
-
 gboolean clearTransparentPlug(GtkWidget*, cairo_t* cairo, gpointer) {
     if (!cairo) return FALSE;
     // The plug is an ARGB X11 child over the MPV window. Clear its backing
@@ -709,8 +465,8 @@ void onScriptMessage(WebKitUserContentManager*, WebKitJavascriptResult* result, 
         if (eventType == "controlsVisibility") {
             // The web UI reports whether the controls page is actually visible
             // (controls, probing, video-ended, menus). This gates the snapshot
-            // compositor: while hidden nothing is drawn over the video and
-            // normal watching costs nothing.
+            // compositor (Phase 3+): while hidden nothing is drawn over the
+            // video and normal watching costs nothing.
             const std::string value = extractJsonString(payload, "value");
             g_controlsVisible = (value == "1");
             return;
@@ -927,6 +683,391 @@ void* getGlProcAddress(void*, const char* name) {
     return dlsym(glLibrary, name);
 }
 
+// ---------------------------------------------------------------------------
+// Modern GL overlay renderer (core-profile safe).
+// The GtkGLArea context is CORE PROFILE (probe: "4.6 (Core Profile)"), where
+// the legacy fixed-function pipeline (glBegin/glOrtho) does not exist and
+// silently draws nothing — the cause of the previous black overlay. This
+// renderer uses shaders + VBO, which work in any profile. All GL entry points
+// are resolved at runtime via getGlProcAddress (the bridge never links libGL).
+// ---------------------------------------------------------------------------
+
+struct OverlayGl {
+    bool ready = false;
+    GLuint program = 0;
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLint locTex = -1;
+};
+static OverlayGl g_overlayGl;
+
+static GLuint compileShader(GLenum type, const char* source, const char* name) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512] = {0};
+        glGetShaderInfoLog(shader, sizeof(log) - 1, nullptr, log);
+        LOG_TO_FILE("[NativeBridge:Linux] overlay shader compile failed (" << name << "): " << log);
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+// Full-screen textured quad (two triangles), UV 0..1 with (0,0) at bottom-left
+// in GL convention; callers flip UVs when the source has a top-left origin.
+static bool ensureOverlayProgram() {
+    if (g_overlayGl.ready) return true;
+        const char* vs = R"GLSL(#version 330 core
+layout(location=0) in vec2 aPos;
+layout(location=1) in vec2 aUV;
+out vec2 vUV;
+void main() { vUV = aUV; gl_Position = vec4(aPos, 0.0, 1.0); }
+)GLSL";
+    const char* fs = R"GLSL(#version 330 core
+in vec2 vUV;
+out vec4 fragColor;
+uniform sampler2D uTex;
+void main() { fragColor = texture(uTex, vUV); }
+)GLSL";
+    GLuint vsh = compileShader(GL_VERTEX_SHADER, vs, "vertex");
+    GLuint fsh = compileShader(GL_FRAGMENT_SHADER, fs, "fragment");
+    if (!vsh || !fsh) return false;
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vsh);
+    glAttachShader(prog, fsh);
+    glLinkProgram(prog);
+    glDeleteShader(vsh);
+    glDeleteShader(fsh);
+    GLint ok = GL_FALSE;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[512] = {0};
+        GLint len = 0;
+        glGetProgramInfoLog(prog, sizeof(log) - 1, &len, log);
+        LOG_TO_FILE("[NativeBridge:Linux] overlay program link failed: " << log);
+        glDeleteShader(0);
+        return false;
+    }
+    g_overlayGl.program = prog;
+    g_overlayGl.locTex = glGetUniformLocation(prog, "uTex");
+
+    // Full-screen quad (two triangles), positions in NDC. UVs are flipped so
+    // texture row 0 (image top-left for cairo ARGB32) appears at the SCREEN
+    // top-left, matching the video orientation in the FBO.
+    const float verts[] = {
+        -1.0f, -1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 1.0f,
+         1.0f,  1.0f,  1.0f, 0.0f,
+        -1.0f, -1.0f,  0.0f, 1.0f,
+         1.0f,  1.0f,  1.0f, 0.0f,
+        -1.0f,  1.0f,  0.0f, 0.0f,
+    };
+    glGenVertexArrays(1, &g_overlayGl.vao);
+    glBindVertexArray(g_overlayGl.vao);
+    glGenBuffers(1, &g_overlayGl.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, g_overlayGl.vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+    
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                                reinterpret_cast<void*>(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+    g_overlayGl.ready = true;
+    return true;
+}
+
+// Draw a texture over the whole video surface. Called from renderMpvFrame with
+// the GtkGLArea context current, AFTER mpv rendered the video. Premultiplied
+// alpha sources (cairo ARGB32) blend with (GL_ONE, GL_ONE_MINUS_SRC_ALPHA).
+// UVs are flipped so (0,0) maps to the top-left of the screen for cairo-style
+// sources.
+static bool drawOverlayTexture(GLuint tex, int texW, int texH, bool premultiplied) {
+    if (!g_overlayGl.ready && !ensureOverlayProgram()) return false;
+    if (!tex || texW <= 0 || texH <= 0) return false;
+    glUseProgram(g_overlayGl.program);
+    if (g_overlayGl.locTex >= 0) glUniform1i(g_overlayGl.locTex, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(g_overlayGl.vao);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glEnable(GL_BLEND);
+    if (premultiplied) {
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    } else {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glUseProgram(0);
+    return true;
+}
+
+// Phase 1 verification: draw a generated magenta test texture over the video so
+// the user can confirm our GL path composites on top of mpv's output (the
+// exact thing that failed before with legacy GL). Remove after confirmation.
+static bool drawTestOverlay(int width, int height) {
+    const int TW = 200, TH = 100;
+    static unsigned char* testPixels = nullptr;
+    if (!testPixels) {
+        testPixels = new unsigned char[TW * TH * 4];
+        for (int y = 0; y < TH; y++)
+            for (int x = 0; x < TW; x++) {
+                unsigned char* p = testPixels + (y * TW + x) * 4;
+                p[0] = 0xFF; p[1] = 0x00; p[2] = 0xFF; p[3] = 0x80;  // BGRA magenta, 50% alpha
+            }
+    }
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, TW, TH, 0, GL_BGRA, GL_UNSIGNED_BYTE, testPixels);
+    const bool ok = drawOverlayTexture(tex, TW, TH, false);
+    glDeleteTextures(1, &tex);
+    (void)width; (void)height;
+    return ok;
+}
+
+// Phase 4: draw the REAL controls snapshot (premultiplied ARGB32 cairo surface)
+// over the video. Called from renderMpvFrame with the GtkGLArea context
+// current, AFTER mpv rendered the video. Grabs the latest snapshot under the
+// lifecycle lock and references it so the GTK thread can safely replace it.
+static bool drawControlsSnapshot(int width, int height) {
+    cairo_surface_t* surf = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_lifecycleMutex);
+        if (g_snapSurf) surf = cairo_surface_reference(g_snapSurf);
+    }
+    if (!surf) return false;
+    const int sw = cairo_image_surface_get_width(surf);
+    const int sh = cairo_image_surface_get_height(surf);
+    if (sw <= 0 || sh <= 0) {
+        cairo_surface_destroy(surf);
+        return false;
+    }
+    cairo_surface_flush(surf);
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sw, sh, 0, GL_BGRA,
+                 GL_UNSIGNED_BYTE, cairo_image_surface_get_data(surf));
+    // DIAGNOSTIC: WebKit's snapshot is STRAIGHT alpha (not premultiplied), so
+    // blend with GL_SRC_ALPHA (same convention as the magenta test that was
+    // visible). Premultiplied GL_ONE blending made the overlay invisible.
+    const bool ok = drawOverlayTexture(tex, sw, sh, false);
+    GLenum glErr = glGetError();
+    LOG_TO_FILE("[NativeBridge:Linux] controls overlay drawn "
+        << sw << "x" << sh << " (glError=" << (glErr == 0 ? "none" : "0x") << std::hex << glErr << ")");
+    glDeleteTextures(1, &tex);
+    cairo_surface_destroy(surf);
+    (void)width; (void)height;
+    return ok;
+}
+
+// ---- Offscreen controls window: size sync + frame-clock forcing -----------
+// A composite-redirected (never-presented) window's GTK frame clock stalls:
+// gtk_window_resize and CSS layout never apply on their own. This tick runs
+// while the player is open, keeps the window matched to the REAL video host
+// size (the 200x200 trap), and forces the UPDATE+LAYOUT phases so the page
+// re-lays-out and its animations keep running.
+
+struct SnapCtx {
+    guint gen;
+};
+
+// Completion of the async controls snapshot: store the premultiplied ARGB32
+// pixels for the GL thread. Runs on the GTK thread like the tick that issued
+// it; renderMpvFrame consumes g_snapSurf on the GL thread.
+void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
+    auto* ctx = static_cast<SnapCtx*>(data);
+    const guint gen = ctx->gen;
+    delete ctx;
+    GError* err = nullptr;
+    cairo_surface_t* surf =
+        webkit_web_view_get_snapshot_finish(WEBKIT_WEB_VIEW(src), res, &err);
+    if (err) g_error_free(err);
+
+    std::lock_guard<std::mutex> lock(g_lifecycleMutex);
+    if (g_teardownRequested) {
+        if (surf) cairo_surface_destroy(surf);
+        return;
+    }
+    if (gen != g_snapGen) {
+        // A watchdog reset invalidated this request; drop the late result.
+        if (surf) cairo_surface_destroy(surf);
+        return;
+    }
+    g_snapInFlight = false;
+    g_snapWaitTicks = 0;
+    if (!surf) return;
+    if (cairo_image_surface_get_format(surf) != CAIRO_FORMAT_ARGB32 ||
+        cairo_image_surface_get_width(surf) <= 0 ||
+        cairo_image_surface_get_height(surf) <= 0) {
+        cairo_surface_destroy(surf);
+        return;
+    }
+    // Drop snapshots taken at a stale size (captured mid-resize); the next
+    // tick requests a fresh one at the settled size.
+    if (g_controlsXid != 0) {
+        GdkWindow* cw = gtk_widget_get_window(g_controlsWindow);
+        if (cw) {
+            XWindowAttributes wa;
+            if (XGetWindowAttributes(gdk_x11_display_get_xdisplay(gdk_display_get_default()),
+                                     g_controlsXid, &wa) &&
+                (cairo_image_surface_get_width(surf) != wa.width ||
+                 cairo_image_surface_get_height(surf) != wa.height)) {
+                cairo_surface_destroy(surf);
+                return;
+            }
+        }
+    }
+    cairo_surface_flush(surf);
+    if (g_snapSurf) cairo_surface_destroy(g_snapSurf);
+    g_snapSurf = surf;
+    LOG_TO_FILE("[NativeBridge:Linux] controls snapshot captured "
+        << cairo_image_surface_get_width(surf) << "x"
+        << cairo_image_surface_get_height(surf));
+    // DIAGNOSTIC: alpha distribution (cheap; every 4th pixel, no PNG writes —
+    // writing a PNG every tick stalls the GTK thread and breaks the pipeline).
+    {
+        const int sw = cairo_image_surface_get_width(surf);
+        const int sh = cairo_image_surface_get_height(surf);
+        const int stride = cairo_image_surface_get_stride(surf);
+        const unsigned char* px = cairo_image_surface_get_data(surf);
+        long opaque = 0, semi = 0, transparent = 0, total = 0;
+        for (int y = 0; y < sh; y += 16) {
+            for (int x = 0; x < sw; x += 16) {
+                const unsigned char a = px[y * stride + x * 4 + 3];
+                if (a >= 250) opaque++;
+                else if (a > 8) semi++;
+                else transparent++;
+                total++;
+            }
+        }
+        LOG_TO_FILE("[NativeBridge:Linux] snapshot alpha: opaque=" << opaque
+            << " semi=" << semi << " transparent=" << transparent
+            << " (sampled " << total << ")");
+    }
+}
+
+gboolean compositeTick(gpointer) {
+    std::lock_guard<std::mutex> lock(g_lifecycleMutex);
+    if (g_teardownRequested || !g_webView) return G_SOURCE_REMOVE;
+
+    if (g_controlsWindow && g_controlsXid != 0 && g_hostWindowId != 0) {
+        GdkWindow* cwGdk = gtk_widget_get_window(g_controlsWindow);
+        Display* dpy = gdk_x11_display_get_xdisplay(gdk_display_get_default());
+        XWindowAttributes hostWa;
+        if (cwGdk && dpy && XGetWindowAttributes(dpy, g_hostWindowId, &hostWa) != 0 &&
+            hostWa.width > 0 && hostWa.height > 0) {
+            int scale = gdk_window_get_scale_factor(cwGdk);
+            if (scale < 1) scale = 1;
+            const int logicalW = hostWa.width / scale;
+            const int logicalH = hostWa.height / scale;
+            XWindowAttributes cwWa;
+            const bool mismatch =
+                XGetWindowAttributes(dpy, g_controlsXid, &cwWa) == 0 ||
+                cwWa.width != logicalW || cwWa.height != logicalH;
+            if (mismatch) {
+                LOG_TO_FILE("[NativeBridge:Linux] controls resize to "
+                    << logicalW << "x" << logicalH);
+                XResizeWindow(dpy, g_controlsXid,
+                              static_cast<unsigned int>(logicalW),
+                              static_cast<unsigned int>(logicalH));
+                XFlush(dpy);
+                gdk_window_resize(cwGdk, logicalW, logicalH);
+                gtk_window_resize(GTK_WINDOW(g_controlsWindow), logicalW, logicalH);
+                GtkAllocation alloc = {0, 0, logicalW, logicalH};
+                gtk_widget_size_allocate(g_controlsWindow, &alloc);
+                if (g_webView) gtk_widget_size_allocate(GTK_WIDGET(g_webView), &alloc);
+            }
+        }
+    }
+    // Force the frame clock so the stalled redirected window actually applies
+    // the layout above and keeps the page's CSS animations running.
+    if (g_controlsWindow) {
+        GdkWindow* fcWin = gtk_widget_get_window(g_controlsWindow);
+        if (fcWin) {
+            GdkFrameClock* fc = gdk_window_get_frame_clock(fcWin);
+            if (fc) {
+                gdk_frame_clock_request_phase(
+                    fc, static_cast<GdkFrameClockPhase>(
+                            GDK_FRAME_CLOCK_PHASE_UPDATE |
+                            GDK_FRAME_CLOCK_PHASE_LAYOUT));
+            }
+        }
+    }
+
+    // Snapshot gate (Phase 3): while the controls are hidden, drop the last
+    // snapshot so the GL thread draws nothing (normal watching costs zero).
+    if (!g_controlsVisible) {
+        if (g_snapSurf) {
+            cairo_surface_destroy(g_snapSurf);
+            g_snapSurf = nullptr;
+        }
+        return G_SOURCE_CONTINUE;
+    }
+    if (!g_snapInFlight) {
+        g_snapInFlight = true;
+        g_snapWaitTicks = 0;
+        if (!g_snapCancel) g_snapCancel = g_cancellable_new();
+        webkit_web_view_get_snapshot(
+            g_webView, WEBKIT_SNAPSHOT_REGION_VISIBLE,
+            WEBKIT_SNAPSHOT_OPTIONS_TRANSPARENT_BACKGROUND,
+            g_snapCancel, onOverlaySnapshot, new SnapCtx{g_snapGen});
+    } else if (++g_snapWaitTicks > 30) {
+        // Watchdog: a hung web process never calls back. Cancel, bump the
+        // generation so a late callback is dropped, and retry after backoff.
+        g_snapGen++;
+        if (g_snapCancel) {
+            g_cancellable_cancel(g_snapCancel);
+            g_object_unref(g_snapCancel);
+            g_snapCancel = nullptr;
+        }
+        g_snapInFlight = false;
+        g_snapWaitTicks = 0;
+        LOG_TO_FILE("[NativeBridge:Linux] snapshot stuck; watchdog reset");
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+void startCompositeTimer() {
+    std::lock_guard<std::mutex> lock(g_lifecycleMutex);
+    if (g_compositeTimer == 0 && !g_teardownRequested) {
+        g_compositeTimer = g_timeout_add(33, compositeTick, nullptr);
+    }
+}
+
+void stopCompositeTimer() {
+    if (g_compositeTimer != 0) {
+        g_source_remove(g_compositeTimer);
+        g_compositeTimer = 0;
+    }
+    if (g_snapCancel) {
+        g_cancellable_cancel(g_snapCancel);
+        g_object_unref(g_snapCancel);
+        g_snapCancel = nullptr;
+    }
+    g_snapGen++;
+    g_snapInFlight = false;
+    g_snapWaitTicks = 0;
+    if (g_snapSurf) {
+        cairo_surface_destroy(g_snapSurf);
+        g_snapSurf = nullptr;
+    }
+}
+
+
 void mpvRenderUpdateCallback(void*) {
     {
         std::lock_guard<std::mutex> renderLock(g_renderMutex);
@@ -986,9 +1127,41 @@ gboolean renderMpvFrame(GtkGLArea* area, GdkGLContext*, gpointer) {
         LOG_TO_FILE("[NativeBridge:Linux] MPV Render API frame failed: " << result);
         return FALSE;
     }
-    // Flicker-free overlay: draw the WebKit controls snapshot inside the same
+    // mpv may leave a different framebuffer bound after its internal render
+    // passes; if we draw into that, the overlay lands in a buffer that is
+    // never presented (the controls stayed invisible while glGetError was
+    // clean). Rebind the FBO we asked mpv to render into, reset the viewport
+    // and disable tests mpv may have left enabled, THEN composite our overlay.
+    if (activeFbo != 0) glBindFramebuffer(GL_FRAMEBUFFER, activeFbo);
+    glViewport(0, 0, width, height);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    // DIAGNOSTIC: prove mpv changes the framebuffer binding after rendering.
+    GLint fboAfterMpv = -1;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fboAfterMpv);
+    if (fboAfterMpv != activeFbo && fboAfterMpv != -1) {
+        LOG_TO_FILE("[NativeBridge:Linux] mpv left FBO=" << fboAfterMpv
+            << " bound (target was " << activeFbo << "); overlay rebind applied");
+    }
+    // DIAGNOSTIC (one-time): read the same pixels before/after our overlay
+    // draw. If the values change, the overlay IS in the presented FBO.
+    static bool pixelProbeDone = false;
+    unsigned char pxBefore[4] = {0}, pxAfter[4] = {0};
+    if (!pixelProbeDone) {
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glReadPixels(width / 2, 40, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pxBefore);
+    }
+    // Flicker-free overlay: composite the controls snapshot inside the same
     // GL pass as the video (no transparent X window involved).
-    drawOverlayTexture(width, height);
+    drawControlsSnapshot(width, height);
+    if (!pixelProbeDone) {
+        pixelProbeDone = true;
+        glReadPixels(width / 2, 40, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pxAfter);
+        LOG_TO_FILE("[NativeBridge:Linux] overlay pixel probe before="
+            << (int)pxBefore[0] << "," << (int)pxBefore[1] << "," << (int)pxBefore[2] << "," << (int)pxBefore[3]
+            << " after=" << (int)pxAfter[0] << "," << (int)pxAfter[1] << "," << (int)pxAfter[2] << "," << (int)pxAfter[3]);
+    }
     g_renderContextReportSwap(g_mpvRenderContext);
     return TRUE;
 }
@@ -1151,6 +1324,32 @@ bool attachMpvRenderOnGtk(mpv_handle* handle) {
 
     auto createRenderContext = [&]() -> std::pair<int, mpv_render_context*> {
         gtk_gl_area_make_current(g_glArea);
+        // Root-fix phase 0.2: identify the ACTUAL GL context profile before
+        // any overlay drawing code is written. Legacy fixed-function GL
+        // (glBegin/glOrtho) only exists in compatibility-profile contexts; in
+        // a core-profile context those calls silently draw nothing (the black
+        // overlay from the previous iteration). Resolve symbols indirectly so
+        // this probe works regardless of link-time GL availability.
+        if (!g_glContextProbed) {
+            g_glContextProbed = true;
+            using GetStringFn = const unsigned char* (*)(unsigned int);
+            using GetIntegervFn = void (*)(unsigned int, int*);
+            auto glGetStringFn = reinterpret_cast<GetStringFn>(
+                getGlProcAddress(nullptr, "glGetString"));
+            auto glGetIntegervFn = reinterpret_cast<GetIntegervFn>(
+                getGlProcAddress(nullptr, "glGetIntegerv"));
+            const char* ver = glGetStringFn ? (const char*)glGetStringFn(0x1F02) : "?";
+            const char* rend = glGetStringFn ? (const char*)glGetStringFn(0x1F01) : "?";
+            const char* glsl = glGetStringFn ? (const char*)glGetStringFn(0x8B8C) : "?";
+            int profileMask = 0;
+            if (glGetIntegervFn) glGetIntegervFn(0x9126, &profileMask);  // GL_CONTEXT_PROFILE_MASK
+            const char* profile = (profileMask & 0x00000001) ? "CORE"
+                : (profileMask & 0x00000002) ? "COMPATIBILITY" : "unknown";
+            LOG_TO_FILE("[NativeBridge:Linux] GL context probe: version="
+                << (ver ? ver : "?") << " renderer=" << (rend ? rend : "?")
+                << " glsl=" << (glsl ? glsl : "?")
+                << " profileMask=0x" << std::hex << profileMask << " (" << profile << ")");
+        }
         if (auto* error = gtk_gl_area_get_error(g_glArea)) {
             LOG_TO_FILE("[NativeBridge:Linux] GtkGLArea initialization failed: " << error->message);
             return {-1, nullptr};
@@ -1638,11 +1837,10 @@ void runGtkThread(Window hostWindow, int width, int height) {
     webkit_user_script_unref(shim);
 
     // Alpha-correct controls snapshots: WebKit's DMABUF/compositing paths read
-    // back degraded alpha in snapshots (near-opaque chrome over the video); the
-    // software path snapshots with correct alpha everywhere and the controls
-    // page is cheap to render. The page is offscreen, so disabling accelerated
-    // compositing cannot cause the ghosting seen with an on-screen overlay.
-    // Set before the web process spawns (overwrite=0 keeps user overrides).
+    // back degraded alpha in snapshots; the software path is correct and the
+    // controls page is cheap to render. The page is offscreen, so disabling
+    // accelerated compositing cannot cause the ghosting seen with an on-screen
+    // overlay. Set before the web process spawns (overwrite=0 keeps overrides).
     setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1", 0);
     setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1", 0);
 
@@ -1674,6 +1872,8 @@ void runGtkThread(Window hostWindow, int width, int height) {
     }
     gtk_widget_set_app_paintable(plug, TRUE);
     gtk_widget_set_can_focus(GTK_WIDGET(webView), TRUE);
+    gtk_widget_set_hexpand(GTK_WIDGET(webView), TRUE);
+    gtk_widget_set_vexpand(GTK_WIDGET(webView), TRUE);
     GdkRGBA transparent = {0.0, 0.0, 0.0, 0.0};
     webkit_web_view_set_background_color(webView, &transparent);
 
@@ -1692,6 +1892,10 @@ void runGtkThread(Window hostWindow, int width, int height) {
     gtk_widget_set_hexpand(playerOverlay, TRUE);
     gtk_widget_set_vexpand(playerOverlay, TRUE);
     gtk_container_add(GTK_CONTAINER(playerOverlay), glArea);
+    // Keep the native VLC surface below the shared WebView controls. GTK
+    // composites overlays in insertion order; adding VLC after WebKit makes
+    // the video area the topmost opaque child and hides the loading screen
+    // and controls behind a black rectangle.
     // The WebKit controls page is NOT a visible child of the plug anymore: it
     // lives in a separate composite-redirected toplevel (below) so no
     // transparent window stacks over the video.
@@ -1825,8 +2029,8 @@ void runGtkThread(Window hostWindow, int width, int height) {
     LOG_TO_FILE("[NativeBridge:Linux] GTK overlay initialized; MPV Render API surface="
         << renderWindowId << ", WebKit overlay=GTK, embedded=" << (reparented ? "yes" : "no"));
 
-    // Flicker-free overlay: start the snapshot compositor (gated by
-    // controlsVisibility from the web UI).
+    // Flicker-free overlay: keep the offscreen controls window size-synced and
+    // its frame clock alive while the player is open.
     startCompositeTimer();
 
     g_main_loop_run(loop);
@@ -1870,8 +2074,10 @@ void runGtkThread(Window hostWindow, int width, int height) {
         g_overlayVisible = false;
     }
     if (controlsWindow) {
-        if (controlsXid != 0) {
-            XCompositeUnredirectWindow(xDisplay, controlsXid, CompositeRedirectManual);
+        if (controlsXid != 0 && GDK_IS_X11_WINDOW(gtk_widget_get_window(controlsWindow))) {
+            XCompositeUnredirectWindow(
+                gdk_x11_display_get_xdisplay(gdk_display_get_default()),
+                controlsXid, CompositeRedirectManual);
         }
         gtk_widget_destroy(controlsWindow);
     }
@@ -2341,22 +2547,19 @@ JNIEXPORT void JNICALL Java_com_lagradost_cloudstream3_desktop_player_webview_Na
             return;
         }
         alignGtkOverlay(width, height);
-        // Flicker-free overlay: keep the offscreen controls window matched to
-        // the canvas size so snapshots and input hit-testing align with the
-        // video. A composite-redirected window is never presented, so its GTK
-        // frame clock stalls and gtk_window_resize never lands; resize the X
-        // window directly and force the widget allocation synchronously.
+        // Keep the offscreen controls window matched when resize events DO
+        // arrive (the compositeTick host-size guard covers the no-event case).
         if (g_controlsWindow && width > 0 && height > 0) {
-            LOG_TO_FILE("[NativeBridge:Linux] controls resize to " << width << "x" << height);
             GdkWindow* cwGdk = gtk_widget_get_window(g_controlsWindow);
             if (cwGdk) {
                 int scale = gdk_window_get_scale_factor(cwGdk);
                 if (scale < 1) scale = 1;
                 gdk_window_resize(cwGdk, width / scale, height / scale);
+                gtk_window_resize(GTK_WINDOW(g_controlsWindow), width, height);
+                GtkAllocation alloc = {0, 0, width, height};
+                gtk_widget_size_allocate(g_controlsWindow, &alloc);
+                if (g_webView) gtk_widget_size_allocate(GTK_WIDGET(g_webView), &alloc);
             }
-            GtkAllocation alloc = {0, 0, width, height};
-            gtk_widget_size_allocate(g_controlsWindow, &alloc);
-            if (g_webView) gtk_widget_size_allocate(GTK_WIDGET(g_webView), &alloc);
         }
         if (!g_overlayVisible) scheduleGtkOverlayShow();
     });
