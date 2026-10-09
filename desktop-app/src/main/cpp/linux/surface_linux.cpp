@@ -1466,16 +1466,6 @@ gboolean compositeTick(gpointer) {
 
     // Snapshot gate: while the controls are hidden, drop the last snapshot
     // so the GL thread draws nothing (normal watching costs zero).
-    // Gate transitions are logged (rare): a gate stuck closed is a black UI.
-    {
-        static bool lastGate = true;
-        const bool gate = g_controlsVisible.load(std::memory_order_relaxed);
-        if (gate != lastGate) {
-            lastGate = gate;
-            LOG_TO_FILE("[NativeBridge:Linux] snapshot gate "
-                << (gate ? "OPEN" : "CLOSED"));
-        }
-    }
     if (!g_controlsVisible) {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_snapSurf) {
