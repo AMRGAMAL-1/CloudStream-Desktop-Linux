@@ -406,6 +406,10 @@
         // Reset all session-scoped JS state
         resumeHandled = false;
         userDismissedProbing = false;
+        // Invalidate the previous session's metadata: judging the new session
+        // (e.g. auto-dismiss) on stale lastMeta kills the banner with data
+        // from a dead session. Repopulated by the next metadata push.
+        window.lastMeta = null;
         pendingResumeMs = 0;
         durationMs = 0;
         currentPosMs = 0;
@@ -1590,11 +1594,13 @@
         // Ensure probing overlay is dismissed once playback is buffered and actively rendering
         const pOverlay = document.getElementById('linkProbingOverlay');
         if (pOverlay && pOverlay.classList.contains('active') && !pOverlay.classList.contains('dismissing')) {
+            // No metadata processed yet for this session (e.g. parked page
+            // before the first push lands): never judge on stale/absent data.
             const isKotlinProbing = (window.lastMeta && window.lastMeta.isProbing === true);
             const forwardBufferMs = (typeof s.bufferMs === 'number' && typeof s.positionMs === 'number') ? (s.bufferMs - s.positionMs) : 0;
             const isBufferHealthy = forwardBufferMs >= 3000 || (typeof s.positionMs === 'number' && s.positionMs >= 400);
             const isActivelyPlaying = globalIsPlaying || (typeof s.positionMs === 'number' && s.positionMs > 200);
-            if (!isKotlinProbing && !isAppLoading && (!s.isLoading || isBufferHealthy || isActivelyPlaying)) {
+            if (window.lastMeta && !isKotlinProbing && !isAppLoading && (!s.isLoading || isBufferHealthy || isActivelyPlaying)) {
                 dismissProbingOverlay(true);
             }
         }

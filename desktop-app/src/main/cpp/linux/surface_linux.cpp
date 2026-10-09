@@ -1259,10 +1259,14 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
         g_snapInFlight = false;
         g_snapWaitTicks = 0;
     }
-    if (!surf) return;
+    if (!surf) {
+        LOG_TO_FILE("[NativeBridge:Linux] snapshot completed with null surface");
+        return;
+    }
     if (cairo_image_surface_get_format(surf) != CAIRO_FORMAT_ARGB32 ||
         cairo_image_surface_get_width(surf) <= 0 ||
         cairo_image_surface_get_height(surf) <= 0) {
+        LOG_TO_FILE("[NativeBridge:Linux] snapshot completed with invalid surface");
         cairo_surface_destroy(surf);
         return;
     }
@@ -1462,6 +1466,16 @@ gboolean compositeTick(gpointer) {
 
     // Snapshot gate: while the controls are hidden, drop the last snapshot
     // so the GL thread draws nothing (normal watching costs zero).
+    // Gate transitions are logged (rare): a gate stuck closed is a black UI.
+    {
+        static bool lastGate = true;
+        const bool gate = g_controlsVisible.load(std::memory_order_relaxed);
+        if (gate != lastGate) {
+            lastGate = gate;
+            LOG_TO_FILE("[NativeBridge:Linux] snapshot gate "
+                << (gate ? "OPEN" : "CLOSED"));
+        }
+    }
     if (!g_controlsVisible) {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_snapSurf) {
