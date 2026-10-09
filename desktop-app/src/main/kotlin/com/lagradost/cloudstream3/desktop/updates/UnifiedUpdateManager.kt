@@ -162,7 +162,7 @@ object UnifiedUpdateManager {
                         val update = PendingUpdate(
                             id = "app_client",
                             type = UpdateType.APP_CLIENT,
-                            title = "CS3 Desktop Client",
+                            title = "CloudStream Desktop Version",
                             currentVersion = "v$currentVersion",
                             newVersion = release.tag_name,
                             releaseNotes = release.body,

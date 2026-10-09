@@ -26,8 +26,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -117,6 +119,10 @@ fun AppStartupSplashScreen() {
                 painter = painterResource("splash_logo_transparent.png"),
                 contentDescription = "CloudStream",
                 contentScale = ContentScale.Fit,
+                // Hue blend: shifts the logo toward the theme accent while
+                // keeping its original shading and cleaned detail (unlike
+                // SrcIn, which flattens everything into one flat color).
+                colorFilter = ColorFilter.tint(desktopTheme.Accent, BlendMode.Hue),
                 modifier = Modifier
                     .size(176.dp)
                     .graphicsLayer {
