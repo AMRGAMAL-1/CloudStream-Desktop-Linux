@@ -66,6 +66,7 @@ int g_videoTexH = 0;
 // controls/probing overlay would never composite (black canvas). compositeTick
 // force-queues renders while the overlay is visible and mpv is idle.
 std::atomic<gint64> g_lastMpvUpdateUs{0};
+static gint64 g_lastRenderDoneUs = 0;
 // Timestamp (µs, monotonic) of the last VLC video frame. Same idle problem as
 // mpv: with no frames nothing queues a repaint and the overlay never shows.
 std::atomic<gint64> g_lastVlcFrameUs{0};
@@ -1505,12 +1506,13 @@ gboolean compositeTick(gpointer) {
         }
         if (g_controlsVisible && glArea && GTK_IS_GL_AREA(glArea)) {
             const gint64 now = g_get_monotonic_time();
-            const gint64 lastMpv = g_lastMpvUpdateUs.load(std::memory_order_relaxed);
-            const gint64 lastVlc = g_lastVlcFrameUs.load(std::memory_order_relaxed);
-            const gint64 lastEngine = lastMpv > lastVlc ? lastMpv : lastVlc;
             const bool snapStale = (now - g_lastSnapDoneUs) > 100000;
             static gint64 lastForcedUs = 0;
-            if ((hasSnap || snapStale) && (now - lastEngine) > 100000 && (now - lastForcedUs) > 33000) {
+            // Force on missing DRAWS, not on quiet engine: mpv chatters
+            // (update events) throughout buffering while drawing nothing, and
+            // gating on engine freshness starved the probing banner to black
+            // on direct (no-scrape) launches.
+            if ((hasSnap || snapStale) && (now - g_lastRenderDoneUs) > 100000 && (now - lastForcedUs) > 33000) {
                 lastForcedUs = now;
                 gtk_gl_area_queue_render(glArea);
             }
@@ -1634,6 +1636,11 @@ struct RenderWidgetRefs {
 };
 
 gboolean renderMpvFrame(GtkGLArea* area, GdkGLContext*, gpointer) {
+    // A draw was attempted on the GTK thread: record it so the tick's
+    // forced-render logic measures real draws, not engine chatter (mpv emits
+    // update events constantly while buffering, yet draws nothing until the
+    // first frame — measuring events instead starved the banner to black).
+    g_lastRenderDoneUs = g_get_monotonic_time();
     std::lock_guard<std::mutex> lock(g_renderMutex);
     RenderWidgetRefs refs;
     {

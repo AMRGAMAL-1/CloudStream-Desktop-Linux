@@ -123,11 +123,6 @@ fun ComposeNativeWebPlayer(
     }
 
     var isUiReady by remember { mutableStateOf(false) }
-    // Engine event loop running == native surface attached (fresh or
-    // reattached after parking). Session pushes must wait for it: pushes sent
-    // before reattach completes are silently lost on the parked page (no
-    // UiReady refire recovers them), leaving a permanent black screen.
-    var engineLoopReady by remember { mutableStateOf(false) }
     val audioTracks by (playerState?.audioTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
     val subtitleTracks by (playerState?.subtitleTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
     val videoTracks by (playerState?.videoTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
@@ -511,8 +506,7 @@ fun ComposeNativeWebPlayer(
         }
     }
 
-    LaunchedEffect(link?.url, reloadKey, engineLoopReady) {
-        if (!engineLoopReady) return@LaunchedEffect
+    LaunchedEffect(link?.url, reloadKey) {
         com.lagradost.common.logging.AppLogger.i(
             "ComposeNativeWebPlayer",
             "session-start push link=${link?.url?.takeLast(24)} reloadKey=$reloadKey",
@@ -570,7 +564,6 @@ fun ComposeNativeWebPlayer(
         onFullscreenToggle = currentOnFullscreenToggle,
         playerState = playerState,
         onEventLoopReady = { h ->
-            engineLoopReady = true
             playerState?.updateAudioFilters()
             if (isUiReady) {
                 NativePlayerBridge.startMpvSync(com.sun.jna.Pointer.nativeValue(h))

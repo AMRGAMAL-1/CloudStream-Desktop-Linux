@@ -1587,18 +1587,14 @@
             globalIsLoading = s.isLoading;
         }
 
-        // Ensure probing overlay is dismissed once playback is buffered and actively rendering.
-        // NOTE: dismiss ONLY on positive playback evidence (healthy buffer or
-        // advancing position). A bare "!isLoading" is true at idle session
-        // start (before probing begins / lastMeta set) and hides the init
-        // screen seconds before the server is even chosen.
+        // Ensure probing overlay is dismissed once playback is buffered and actively rendering
         const pOverlay = document.getElementById('linkProbingOverlay');
         if (pOverlay && pOverlay.classList.contains('active') && !pOverlay.classList.contains('dismissing')) {
             const isKotlinProbing = (window.lastMeta && window.lastMeta.isProbing === true);
             const forwardBufferMs = (typeof s.bufferMs === 'number' && typeof s.positionMs === 'number') ? (s.bufferMs - s.positionMs) : 0;
             const isBufferHealthy = forwardBufferMs >= 3000 || (typeof s.positionMs === 'number' && s.positionMs >= 400);
             const isActivelyPlaying = globalIsPlaying || (typeof s.positionMs === 'number' && s.positionMs > 200);
-            if (!isKotlinProbing && !isAppLoading && (isBufferHealthy || isActivelyPlaying)) {
+            if (!isKotlinProbing && !isAppLoading && (!s.isLoading || isBufferHealthy || isActivelyPlaying)) {
                 dismissProbingOverlay(true);
             }
         }
@@ -2783,11 +2779,13 @@
             // Audio mode dismisses immediately since there are no video frames
             if (meta.isAudioMode) {
                 dismissProbingOverlay();
+            } else if (!window.probingDismissTimer) {
+                // Safety watchdog: ensure overlay dismisses after 8s even if forward cache property isn't emitted
+                window.probingDismissTimer = setTimeout(() => {
+                    dismissProbingOverlay(true);
+                    window.probingDismissTimer = null;
+                }, 8000);
             }
-            // NOTE: no timed auto-dismiss here. The banner must stay (buffering
-            // state) until the engine decodes a frame and Kotlin calls
-            // __dismissProbingOverlay. A watchdog dismiss shows an empty black
-            // player while the engine is still resolving/loading the server.
             
             // Highlight the successfully resolved link
             const pList = document.getElementById('linkProbingList');
