@@ -131,11 +131,9 @@ Section: video
 Priority: optional
 Architecture: $deb_arch
 Maintainer: CloudStream maintainers
-Description: CloudStream Desktop media client
- JVM desktop client with a native GTK/WebKitGTK player surface.
+Description: CloudStream Desktop — free media center for streaming and downloading movies, TV shows and anime. Extension-based, ad-free, with watch tracking.
 Depends: libc6 (>= 2.35), libstdc++6 (>= 12), libgtk-3-0 | libgtk-3-0t64, libwebkit2gtk-4.1-0 | libwebkit2gtk-4.1-0t64, libmpv2 | libmpv1, libx11-6, libgl1, libegl1
 Recommends: xwayland, gstreamer1.0-libav
-Suggests: vlc
 EOF
     local archive="$output_dir/cloudstream-desktop_${version}_${deb_arch}.deb"
     dpkg-deb --root-owner-group --build "$stage" "$archive" >/dev/null

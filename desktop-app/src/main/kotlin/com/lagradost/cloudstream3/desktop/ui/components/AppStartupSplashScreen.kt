@@ -10,11 +10,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
@@ -23,10 +26,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -116,7 +117,6 @@ fun AppStartupSplashScreen() {
                 painter = painterResource("splash_logo_transparent.png"),
                 contentDescription = "CloudStream",
                 contentScale = ContentScale.Fit,
-                colorFilter = ColorFilter.tint(desktopTheme.Accent, BlendMode.SrcIn),
                 modifier = Modifier
                     .size(176.dp)
                     .graphicsLayer {
@@ -165,6 +165,41 @@ fun AppStartupSplashScreen() {
                 color = desktopTheme.TextMuted,
                 fontSize = 12.sp,
             )
+            Spacer(Modifier.height(16.dp))
+            // Edition credit pill: breathes with the same glow pulse cycle so
+            // it feels part of the splash animation, in theme colors.
+            Box(
+                modifier = Modifier
+                    .graphicsLayer { alpha = (0.7f + glowAlpha * 0.6f).coerceAtMost(1f) }
+                    .background(
+                        color = desktopTheme.Accent.copy(alpha = 0.10f),
+                        shape = CircleShape,
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = desktopTheme.Accent.copy(alpha = 0.35f),
+                        shape = CircleShape,
+                    )
+                    .padding(horizontal = 20.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Linux Edition",
+                        color = desktopTheme.TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.5.sp,
+                    )
+                    Text(
+                        text = "  •  by AMR GAMAL",
+                        color = desktopTheme.Accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.5.sp,
+                    )
+                }
+            }
         }
     }
 }

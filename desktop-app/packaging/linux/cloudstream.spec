@@ -17,12 +17,11 @@ Requires:       libGL.so.1()(64bit)
 Requires:       libEGL.so.1()(64bit)
 Recommends:     libwayland-client.so.0()(64bit)
 Recommends:     xorg-x11-server-Xwayland
-Suggests:       vlc
 BuildArch:      %{_arch}
 
 %description
-CloudStream Desktop is a JVM desktop client with a native GTK/WebKitGTK
-player surface and system-provided MPV/VLC multimedia backends.
+CloudStream Desktop — free media center for streaming and downloading
+movies, TV shows and anime. Extension-based, ad-free, with watch tracking.
 
 %prep
 
