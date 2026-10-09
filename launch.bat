@@ -88,7 +88,7 @@ if not exist "android-reference\settings.gradle.kts" (
         echo   as a ZIP file instead of cloned with git.
         echo.
         echo   Please run this command in your terminal:
-        echo     git clone --recursive https://github.com/errorcode26/CS3-desktop-client-unofficial.git
+        echo     git clone --recursive https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux.git
         echo ===================================================
         echo.
         pause

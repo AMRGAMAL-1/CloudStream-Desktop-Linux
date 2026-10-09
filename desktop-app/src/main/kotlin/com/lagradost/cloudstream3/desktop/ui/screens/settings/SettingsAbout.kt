@@ -103,7 +103,7 @@ fun SettingsAbout() {
             SettingsNavigationItem(
                 label = "Desktop Source Code",
                 subtitle = "View repository, report desktop issues, and inspect release builds.",
-                onClick = { openUrl("https://github.com/errorcode26/CS3-desktop-client-unofficial") },
+                onClick = { openUrl("https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux") },
             )
         }
 

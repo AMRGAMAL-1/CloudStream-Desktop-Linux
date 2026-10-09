@@ -3,7 +3,7 @@ name: Linux CI and Packages
 on:
   push:
     branches: ["work"]
-    tags: ["v*", "linux-v*"]
+    tags: ["linux-v*"]
   pull_request:
     branches: ["work"]
   workflow_dispatch:
@@ -153,9 +153,18 @@ jobs:
           path: desktop-app/build/outputs/linux/*
 
       - name: Upload Linux assets to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/linux-v')
+        if: startsWith(github.ref, 'refs/tags/linux-v')
         uses: softprops/action-gh-release@v2
         with:
+          name: CloudStream ${{ env.APP_VERSION }}
+          body: >-
+            CloudStream ${{ env.APP_VERSION }} for Linux (x86_64).
+
+            Install the DEB/RPM for your distribution, or use the portable
+            TAR.GZ / AppImage. Requires GTK 3, WebKitGTK 4.1, libmpv,
+            X11 (or XWayland on Wayland sessions) and OpenGL/EGL from the
+            host system. Run `bash desktop-app/check-linux-dependencies.sh`
+            for an exact machine check.
           files: desktop-app/build/outputs/linux/*
           fail_on_unmatched_files: true
           generate_release_notes: false

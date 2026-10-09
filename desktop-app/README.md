@@ -11,7 +11,7 @@ Unlike the Android application, this module operates in a standard JVM desktop e
 - **UI Framework:** All UI is written in Compose Multiplatform following an MVI architecture with reactive StateFlows.
 - **Unified Dialog System:** All popups and dialogs MUST use `CloudstreamAlertDialog` or `CloudstreamCustomDialog` from `com.lagradost.cloudstream3.desktop.ui.components.CloudstreamDialogs` to maintain visual consistency and Amoled Pure Black theme support.
 - **Thread Safety:** Database writes and file I/O must always run on background dispatchers (`Dispatchers.IO`).
-- **Compilation:** Use `launch.bat` (or `launch.bat dev` / `launch.bat build`) in the root directory for development and packaging.
+- **Compilation:** Use the Gradle wrapper from the repository root for development and packaging (see the build commands below).
 
 ## Linux native player layer
 
@@ -59,9 +59,9 @@ or a particular stream format is unavailable.
 
 ## Application update channel
 
-The Windows build continues to use the upstream repository. The Linux build
-never checks that repository: it only accepts releases from the Linux fork
-configured as `LINUX_UPDATE_REPO` in `AppConfig.kt`, and only tags matching
+The Linux build only checks the Linux release channel: it accepts releases
+from the Linux repository configured as `LINUX_UPDATE_REPO` in
+`AppConfig.kt`, and only tags matching
 `linux-v<version>` (for example `linux-v0.1.10`). This separation is strict so
 an upstream Windows release cannot appear as a Linux update. Leave the Linux
 repository empty until the fork has been published; update checks are then

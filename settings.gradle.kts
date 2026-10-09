@@ -16,7 +16,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "cloudstream-windows"
+rootProject.name = "cloudstream-desktop"
 
 include(":library")
 project(":library").projectDir = file("android-reference/library")
