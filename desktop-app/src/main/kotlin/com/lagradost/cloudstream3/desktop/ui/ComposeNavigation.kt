@@ -117,6 +117,7 @@ fun CloudstreamApp(rootComponent: RootComponent) {
     val typography = androidx.compose.runtime.remember(selectedFont, arabicFontChoice) {
         com.lagradost.cloudstream3.desktop.ui.theme.buildTypography(
             com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily(selectedFont, arabicFontChoice),
+            arabicFontChoice,
         )
     }
 

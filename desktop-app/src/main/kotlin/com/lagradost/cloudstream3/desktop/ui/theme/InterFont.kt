@@ -194,8 +194,27 @@ fun getFontFamily(
 }
 
 // Typography builder - call with any FontFamily
+// When Cocon is the active Arabic face, body styles get a size/line-height
+// compensation: Cocon renders visibly smaller than Latin faces at the same
+// sp (great for headings, too small for body). Headings, titles, labels and
+// buttons are untouched so layouts never break.
 
-fun buildTypography(fontFamily: FontFamily): Typography = Typography(
+fun buildTypography(fontFamily: FontFamily): Typography = baseTypography(fontFamily)
+
+fun buildTypography(
+    fontFamily: FontFamily,
+    arabicFontChoice: ArabicFontChoice = AppearanceConfig.arabicFontChoice.value,
+): Typography {
+    val base = baseTypography(fontFamily)
+    if (arabicFontChoice != ArabicFontChoice.COCON) return base
+    return base.copy(
+        bodyLarge = base.bodyLarge.copy(fontSize = 18.sp, lineHeight = 26.sp),
+        bodyMedium = base.bodyMedium.copy(fontSize = 16.sp, lineHeight = 22.sp),
+        bodySmall = base.bodySmall.copy(fontSize = 13.5.sp, lineHeight = 18.sp),
+    )
+}
+
+private fun baseTypography(fontFamily: FontFamily): Typography = Typography(
     displayLarge = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Bold, fontSize = 57.sp, lineHeight = 64.sp),
     displayMedium = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.Bold, fontSize = 45.sp, lineHeight = 52.sp),
     displaySmall = TextStyle(fontFamily = fontFamily, fontWeight = FontWeight.SemiBold, fontSize = 36.sp, lineHeight = 44.sp),
