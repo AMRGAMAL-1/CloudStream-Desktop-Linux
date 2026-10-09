@@ -72,7 +72,6 @@ fun ComposeNativeWebPlayer(
     reloadKey: Int = 0,
     onRetryPlayback: (() -> Unit)? = null,
     parentId: String? = null,
-    backend: String = "mpv",
 ) {
     if (!NativePlayerBridge.isAvailable()) {
         LaunchedEffect(Unit) {
@@ -81,39 +80,7 @@ fun ComposeNativeWebPlayer(
         return
     }
 
-    if (backend.equals("vlc", ignoreCase = true)) {
-        ComposeNativeVlcPlayer(
-            modifier = modifier,
-            link = link,
-            title = title,
-            backdropUrl = backdropUrl,
-            logoUrl = logoUrl,
-            seriesPosterUrl = seriesPosterUrl,
-            links = links,
-            currentLinkIndex = currentLinkIndex,
-            episodes = episodes,
-            currentEpisodeId = currentEpisodeId,
-            currentEpisodeNumber = currentEpisodeNumber,
-            currentSeasonNumber = currentSeasonNumber,
-            subtitles = subtitles,
-            startPositionMs = startPositionMs,
-            onPlaybackReady = onPlaybackReady,
-            onPlaybackError = onPlaybackError,
-            onFinished = onFinished,
-            onPositionChange = onPositionChange,
-            onCloseRequest = onCloseRequest,
-            isExiting = isExiting,
-            onSkipScraping = onSkipScraping,
-            onFullscreenToggle = onFullscreenToggle,
-            playerState = playerState,
-            onLinkChange = onLinkChange,
-            onEpisodeChange = onEpisodeChange,
-            onNextEpisode = onNextEpisode,
-            onReplayEpisode = onReplayEpisode,
-            reloadKey = reloadKey,
-        )
-        return
-    }
+    // mpv-only application: no backend branching. (VLC support removed.)
 
     val scope = rememberCoroutineScope()
     val persistentSubtitles = remember { androidx.compose.runtime.mutableStateListOf<String>() }
@@ -134,6 +101,10 @@ fun ComposeNativeWebPlayer(
     val currentOnCloseRequest by rememberUpdatedState(onCloseRequest)
     val currentOnFullscreenToggle by rememberUpdatedState(onFullscreenToggle)
     val linuxNativeSurfaceAvailable = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
+    // One-shot per mount: force the reused page back to the probing banner.
+    // NOTE: intentionally NOT keyed on link/url: in-player server switches
+    // pick a specific link and must not resurrect the init screen.
+    val forceSessionResetOnce = remember { java.util.concurrent.atomic.AtomicBoolean(true) }
 
     val watchHistoryList by produceState<List<com.lagradost.common.storage.WatchHistory>>(initialValue = emptyList(), parentId) {
         if (parentId != null) {
@@ -152,6 +123,11 @@ fun ComposeNativeWebPlayer(
     }
 
     var isUiReady by remember { mutableStateOf(false) }
+    // Engine event loop running == native surface attached (fresh or
+    // reattached after parking). Session pushes must wait for it: pushes sent
+    // before reattach completes are silently lost on the parked page (no
+    // UiReady refire recovers them), leaving a permanent black screen.
+    var engineLoopReady by remember { mutableStateOf(false) }
     val audioTracks by (playerState?.audioTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
     val subtitleTracks by (playerState?.subtitleTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
     val videoTracks by (playerState?.videoTracks ?: EMPTY_LIST_FLOW).collectAsState(emptyList())
@@ -397,6 +373,9 @@ fun ComposeNativeWebPlayer(
                 isExhausted = isExhausted,
                 exhaustionReason = exhaustionReason,
                 exhaustionDiagnostics = exhaustionDiagnostics,
+                // First push of a (re)mounted player: the parked page still
+                // holds the previous session's dismissed banner.
+                forceSessionReset = forceSessionResetOnce.getAndSet(false),
                 audioNormalization = audioNormalization,
                 audioNormStrength = audioNormStrength,
                 audioSpatial = audioSpatial,
@@ -532,6 +511,37 @@ fun ComposeNativeWebPlayer(
         }
     }
 
+    LaunchedEffect(link?.url, reloadKey, engineLoopReady) {
+        if (!engineLoopReady) return@LaunchedEffect
+        com.lagradost.common.logging.AppLogger.i(
+            "ComposeNativeWebPlayer",
+            "session-start push link=${link?.url?.takeLast(24)} reloadKey=$reloadKey",
+        )
+        // Session start (fresh or relaunch): push immediately so the probing
+        // banner appears at once. isUiReady belongs to the previous
+        // composition on relaunch (parked page is alive), so the UiReady-gated
+        // effects above would never refire for it.
+        // Off the main thread: these builds hit disk (image cache) and SQLite.
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            pushSyncStateToWebView()
+            pushMetadataToWebView()
+        }
+        // The reused page never reloads, so UiReady never refires either: without
+        // this, mpv sync (timings/buffering/keyboard focus) stays dead for every
+        // session after the first, with video playing fine underneath.
+        isUiReady = true
+        var tries = 0
+        while (tries++ < 50) {
+            val h = playerState?.getNativeHandleValue()
+            if (h != null && h != 0L) {
+                NativePlayerBridge.startMpvSync(h)
+                break
+            }
+            kotlinx.coroutines.delay(200L)
+        }
+        NativePlayerBridge.focusWebView()
+    }
+
     BaseMpvPlayer(
         modifier = modifier,
         link = link,
@@ -560,6 +570,7 @@ fun ComposeNativeWebPlayer(
         onFullscreenToggle = currentOnFullscreenToggle,
         playerState = playerState,
         onEventLoopReady = { h ->
+            engineLoopReady = true
             playerState?.updateAudioFilters()
             if (isUiReady) {
                 NativePlayerBridge.startMpvSync(com.sun.jna.Pointer.nativeValue(h))
@@ -1294,6 +1305,12 @@ fun ComposeNativeWebPlayer(
                 }
             })
 
+            // Always reload the controls page per player open (GitHub-stable
+            // lifecycle): a fresh load refires UiReady, which re-pushes all
+            // state and fully recovers the banner/controls. Skipping the
+            // reload on the parked page (reuse optimization) left session ≥2
+            // with stale/frozen UI — reverted deliberately; the 1-2s blank is
+            // the accepted known-good tradeoff.
             if (tempFile.exists()) {
                 NativePlayerBridge.loadUrl(tempFile.absoluteFile.toURI().toString())
             }

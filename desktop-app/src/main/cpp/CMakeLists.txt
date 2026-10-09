@@ -38,6 +38,8 @@ elseif(UNIX AND NOT APPLE)
     # runtime. Keep libmpv out of DT_NEEDED so Java/JNA and the bridge share
     # one selected system ABI instead of loading two copies.
     pkg_check_modules(MPV REQUIRED mpv)
+    pkg_check_modules(SWSCALE REQUIRED IMPORTED_TARGET libswscale)
+    pkg_check_modules(XCOMPOSITE REQUIRED IMPORTED_TARGET xcomposite)
 
     set(SOURCES
         common/mpv_core.cpp
@@ -52,9 +54,13 @@ elseif(UNIX AND NOT APPLE)
         ${OPENGL_LIBRARIES}
         PkgConfig::GTK3
         PkgConfig::WEBKITGTK
+        PkgConfig::SWSCALE
+        PkgConfig::XCOMPOSITE
     )
     set_target_properties(player_bridge PROPERTIES
         PREFIX "lib"
         SUFFIX ".so"
+        # Fail the build (not the app launch) on undefined symbols.
+        LINK_FLAGS "-Wl,-z,defs"
     )
 endif()

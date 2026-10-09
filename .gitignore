@@ -49,6 +49,11 @@ local.properties
 # Logs
 logs/
 *.log
+# Native crash dumps (never publish multi-GB cores)
+/core
+/core.*
+**/core
+**/core.*
 
 # Scratch Test Files
 test_*.kt

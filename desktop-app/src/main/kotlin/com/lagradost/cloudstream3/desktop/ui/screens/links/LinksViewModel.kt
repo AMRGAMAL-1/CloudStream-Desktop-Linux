@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 
 class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffect>(
     initialState = LinksUiState(
-        preferredPlayer = "mpv",
         autoPlayEnabled = true,
     ),
 ) {
@@ -25,10 +24,9 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            val prefPlayer = DesktopDataStore.getKey<String>("preferred_player") ?: "mpv"
             val autoPlay = DesktopDataStore.getKey<Boolean>(com.lagradost.cloudstream3.desktop.player.PlayerConfig.PREF_AUTO_PLAY) ?: true
             val p2p = DesktopDataStore.getKey<Boolean>(DesktopDataStore.PREF_P2P_ENABLED) ?: false
-            updateState { copy(preferredPlayer = prefPlayer, autoPlayEnabled = autoPlay, isP2pEnabled = p2p) }
+            updateState { copy(autoPlayEnabled = autoPlay, isP2pEnabled = p2p) }
         }
     }
 
@@ -46,12 +44,6 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
             is LinksUiEvent.OnCancelScrape -> cancelScrape()
             is LinksUiEvent.OnStatusTextChanged -> updateState { copy(statusText = event.text) }
             is LinksUiEvent.OnSaveWatchPosition -> saveWatchPosition(event.history, event.positionMs, event.durationMs)
-            is LinksUiEvent.OnPreferredPlayerChanged -> {
-                updateState { copy(preferredPlayer = event.player) }
-                viewModelScope.launch(Dispatchers.IO) {
-                    DesktopDataStore.setKey("preferred_player", event.player)
-                }
-            }
             is LinksUiEvent.OnAddLinks -> {
                 updateState {
                     val combined = (links + event.links).distinctBy { it.url }
@@ -297,59 +289,27 @@ class LinksViewModel : BaseMviViewModel<LinksUiState, LinksUiEvent, LinksUiEffec
             )
         }
 
-        val embeddedVlcSupported = System.getProperty("os.name", "").contains("linux", ignoreCase = true)
-        val effectivePlayer = if (state.preferredPlayer == "vlc" && com.lagradost.player.impl.PlayerLinkHandler.shouldPreferMpv(link)) {
-            "mpv"
-        } else if (state.preferredPlayer == "vlc" && !embeddedVlcSupported) {
-            // The native libVLC surface is currently Linux-only. Keep other
-            // desktop targets on the stable embedded MPV route until their
-            // native window bridge is implemented as well.
-            "mpv"
-        } else {
-            state.preferredPlayer
-        }
-
-        updateState { copy(statusText = "Launching ${effectivePlayer.uppercase()}...") }
-
+        // mpv-only application: always launch the embedded MPV route.
+        // (VLC support removed; see git history for rationale.)
+        updateState { copy(statusText = "Launching MPV...") }
         val isLive = loadResponse?.type == com.lagradost.cloudstream3.TvType.Live
         val startSec = if (isLive) 0L else com.lagradost.player.impl.PlayerLinkHandler.resumeStartSeconds(history.position, history.duration)
         val startMs = startSec * 1000L
 
-        if (effectivePlayer == "vlc") {
-            // VLC uses the same embedded player route as MPV. The backend is
-            // carried in VideoLaunchData so the player shell, loading card,
-            // WebKit controls, and close/reopen lifecycle stay identical.
-            val initialIndex = state.links.indexOfFirst { it.url == link.url }.coerceAtLeast(0)
-            val launchData = com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(
-                links = state.links,
-                initialIndex = initialIndex,
-                title = displayTitle,
-                subtitles = state.subtitles,
-                startPositionMs = startMs,
-                history = history,
-                loadResponse = loadResponse,
-                enrichedActors = event.enrichedActors,
-                enrichedLogoUrl = event.enrichedLogoUrl,
-                enrichedBackdropUrl = event.enrichedBackdropUrl,
-                playerBackend = "vlc",
-            )
-            sendEffect(LinksUiEffect.LaunchEmbeddedPlayer(launchData))
-        } else {
-            val initialIndex = state.links.indexOfFirst { it.url == link.url }.coerceAtLeast(0)
-            val launchData = com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(
-                links = state.links,
-                initialIndex = initialIndex,
-                title = displayTitle,
-                subtitles = state.subtitles,
-                startPositionMs = startMs,
-                history = history,
-                loadResponse = loadResponse,
-                enrichedActors = event.enrichedActors,
-                enrichedLogoUrl = event.enrichedLogoUrl,
-                enrichedBackdropUrl = event.enrichedBackdropUrl,
-            )
-            sendEffect(LinksUiEffect.LaunchEmbeddedPlayer(launchData))
-            updateState { copy(statusText = "Playing in embedded player: ${link.name}") }
-        }
+        val initialIndex = state.links.indexOfFirst { it.url == link.url }.coerceAtLeast(0)
+        val launchData = com.lagradost.cloudstream3.desktop.ui.VideoLaunchData(
+            links = state.links,
+            initialIndex = initialIndex,
+            title = displayTitle,
+            subtitles = state.subtitles,
+            startPositionMs = startMs,
+            history = history,
+            loadResponse = loadResponse,
+            enrichedActors = event.enrichedActors,
+            enrichedLogoUrl = event.enrichedLogoUrl,
+            enrichedBackdropUrl = event.enrichedBackdropUrl,
+        )
+        sendEffect(LinksUiEffect.LaunchEmbeddedPlayer(launchData))
+        updateState { copy(statusText = "Playing in embedded player: ${link.name}") }
     }
 }

@@ -936,6 +936,15 @@ class DesktopMpvEngine(
             }
 
             if (handle != null) {
+                if (!System.getProperty("os.name", "").contains("win", ignoreCase = true)) {
+                    // Detach THIS handle's render context first: a concurrent
+                    // session may have attached its own since, and terminating
+                    // with any context still attached aborts the process
+                    // ("Broken API use: mpv_render_context_free() not called").
+                    runCatching {
+                        NativePlayerBridge.detachMpvRender(com.sun.jna.Pointer.nativeValue(handle))
+                    }
+                }
                 AppLogger.i("DesktopMpvEngine", "Calling mpv stop before native termination...")
                 val stopResult = MpvLibrary.INSTANCE.mpv_command_string(handle, "stop")
                 AppLogger.i("DesktopMpvEngine", "mpv stop returned: $stopResult")

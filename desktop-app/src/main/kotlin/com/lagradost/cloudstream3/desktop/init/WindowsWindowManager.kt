@@ -7,6 +7,7 @@ import java.awt.Window
 import javax.swing.JFrame
 
 private const val LINUX_FULLSCREEN_RESTORE_BOUNDS = "cloudstream.linux.fullscreen.restoreBounds"
+private const val LINUX_FULLSCREEN_RESTORE_STATE = "cloudstream.linux.fullscreen.restoreExtendedState"
 private const val LINUX_FULLSCREEN_RETRY_TIMER = "cloudstream.linux.fullscreen.retryTimer"
 
 interface Kernel32 : com.sun.jna.Library {
@@ -111,6 +112,14 @@ private fun enterLinuxFullscreen(frame: JFrame) {
             LINUX_FULLSCREEN_RESTORE_BOUNDS,
             Rectangle(frame.bounds),
         )
+        // Remember whether the window was maximized: exiting fullscreen must
+        // restore MAXIMIZED_BOTH, not just the old bounds (a maximized window
+        // forced to NORMAL + work-area bounds never behaves like other Linux
+        // apps afterwards — minimize/restore included).
+        frame.rootPane.putClientProperty(
+            LINUX_FULLSCREEN_RESTORE_STATE,
+            frame.extendedState,
+        )
     }
 
     runCatching {
@@ -139,7 +148,12 @@ private fun enterLinuxFullscreen(frame: JFrame) {
         val retryTimer = javax.swing.Timer(180, null)
         retryTimer.isRepeats = false
         retryTimer.addActionListener {
-            if (frame.isDisplayable && frame.isVisible) {
+            // Never steal the window back while it is minimized: the timer
+            // condition (displayable + visible) stays true for an iconified
+            // frame and the reassert would yank it out of minimize.
+            if (frame.isDisplayable && frame.isVisible &&
+                (frame.extendedState and JFrame.ICONIFIED) == 0
+            ) {
                 runCatching {
                     com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.setFullscreen(
                         hwnd = com.sun.jna.Native.getComponentID(frame),
@@ -198,15 +212,25 @@ private fun exitLinuxFullscreen(frame: JFrame) {
     }
 
     val restoreBounds = frame.rootPane.getClientProperty(LINUX_FULLSCREEN_RESTORE_BOUNDS) as? Rectangle
+    val restoreState = frame.rootPane.getClientProperty(LINUX_FULLSCREEN_RESTORE_STATE) as? Int
     frame.rootPane.putClientProperty(LINUX_FULLSCREEN_RESTORE_BOUNDS, null)
+    frame.rootPane.putClientProperty(LINUX_FULLSCREEN_RESTORE_STATE, null)
     if (restoreBounds != null) {
         runCatching {
             frame.setBounds(restoreBounds)
+            // Restore the maximized state when that is what we had: a plain
+            // NORMAL + bounds leaves the window manager treating the app as a
+            // floating window (broken minimize/restore vs other Linux apps).
+            if (restoreState != null &&
+                (restoreState and JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH
+            ) {
+                frame.extendedState = JFrame.MAXIMIZED_BOTH
+            }
             frame.validate()
             frame.toFront()
         }
     }
-    AppLogger.i("LinuxFullscreen", "Exited fullscreen restoreBounds=$restoreBounds")
+    AppLogger.i("LinuxFullscreen", "Exited fullscreen restoreBounds=$restoreBounds restoreState=$restoreState")
 }
 
 // DWM Dark mode title bar + caption colour (via C++ bridge)

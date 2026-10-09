@@ -17,7 +17,6 @@ sealed interface LinksUiEvent : UiEvent {
     data object OnCancelScrape : LinksUiEvent
     data class OnStatusTextChanged(val text: String) : LinksUiEvent
     data class OnSaveWatchPosition(val history: WatchHistory, val positionMs: Long, val durationMs: Long) : LinksUiEvent
-    data class OnPreferredPlayerChanged(val player: String) : LinksUiEvent
     data class OnAddLinks(val links: List<com.lagradost.cloudstream3.utils.ExtractorLink>) : LinksUiEvent
     data class OnPlayLink(
         val link: com.lagradost.cloudstream3.utils.ExtractorLink,

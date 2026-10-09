@@ -7,7 +7,6 @@ package com.lagradost.cloudstream3.desktop.core.preference
 object PreferenceKeys {
     // Providers & Plugins
     const val USER_PROVIDER_API = "USER_PROVIDER_API"
-    const val PREFERRED_PLAYER = "preferred_player"
     const val PREF_ACTIVE_PROVIDERS = "home_active_providers"
     const val PREF_SELECTED_PROVIDER = "preferred_provider_name"
     const val LAST_PLUGIN_SYNC_TIMESTAMP = "last_plugin_sync_timestamp"

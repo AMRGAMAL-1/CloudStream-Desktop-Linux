@@ -87,25 +87,13 @@ object NativePlayerBridge {
      * Windows continues to use the native WebView2/MPV window embedding path.
      */
     external fun attachMpvRender(handle: Long): Boolean
+    /** Detach this handle's render context. Must precede mpv stop/terminate. */
+    external fun detachMpvRender(handle: Long)
 
-    /** Starts VLC inside the already initialized Linux player surface. */
-    external fun startVlc(
-        url: String,
-        title: String? = null,
-        userAgent: String? = null,
-        referer: String? = null,
-        startPositionMs: Long = 0L,
-    ): Boolean
-
-    external fun stopVlc()
-    external fun pauseVlc()
-    external fun playVlc()
-    external fun seekVlc(positionMs: Long)
-    external fun setVlcVolume(volume: Int)
-    external fun setVlcRate(rate: Float)
-    external fun setVlcMute(muted: Boolean)
-    external fun startVlcSync()
-    external fun stopVlcSync()
+    // NOTE: mpv-only application. The native VLC engine still exists in C++
+    // but is dormant (no Kotlin entry points reference it), so it can never
+    // start threads or sessions. See surface_linux.cpp.
+    external fun shutdownNative()
 
     /**
      * Resizes the native child window.

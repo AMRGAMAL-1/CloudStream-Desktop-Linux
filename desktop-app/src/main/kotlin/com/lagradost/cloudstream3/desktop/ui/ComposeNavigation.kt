@@ -60,7 +60,7 @@ data class VideoLaunchData(
     val enrichedLogoUrl: String? = null,
     val enrichedBackdropUrl: String? = null,
     val enrichedActors: List<com.lagradost.cloudstream3.ActorData>? = null,
-    /** Embedded playback backend. MPV remains the default; VLC is native on Linux. */
+    /** Retained for launch-data compatibility; always "mpv" (sole engine). */
     val playerBackend: String = "mpv",
 )
 
