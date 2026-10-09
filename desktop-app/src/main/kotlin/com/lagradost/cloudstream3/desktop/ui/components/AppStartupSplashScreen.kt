@@ -119,10 +119,9 @@ fun AppStartupSplashScreen() {
                 painter = painterResource("splash_logo_transparent.png"),
                 contentDescription = "CloudStream",
                 contentScale = ContentScale.Fit,
-                // Hue blend: shifts the logo toward the theme accent while
-                // keeping its original shading and cleaned detail (unlike
-                // SrcIn, which flattens everything into one flat color).
-                colorFilter = ColorFilter.tint(desktopTheme.Accent, BlendMode.Hue),
+                // Theme-tied silhouette: takes the theme accent color while
+                // the file's own alpha keeps full transparency (no square).
+                colorFilter = ColorFilter.tint(desktopTheme.Accent, BlendMode.SrcIn),
                 modifier = Modifier
                     .size(176.dp)
                     .graphicsLayer {
