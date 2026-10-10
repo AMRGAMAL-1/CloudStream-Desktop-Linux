@@ -175,6 +175,8 @@ make_appimage() {
     local archive="$output_dir/CloudStream-Desktop-${version}-linux-$(uname -m).AppImage"
     ARCH="$(uname -m)" appimagetool "$appdir" "$archive"
     chmod +x "$archive"
+    ls -l "$archive"
+    test -x "$archive" || { echo "AppImage is not executable after chmod: $archive" >&2; return 1; }
     echo "Created $archive"
 }
 

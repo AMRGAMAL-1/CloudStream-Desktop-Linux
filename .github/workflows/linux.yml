@@ -116,6 +116,7 @@ jobs:
           tar -tzf "$tar_file" | grep -Fx './CloudStream-Desktop/bin/CloudStream-Desktop'
           dpkg-deb --info "$deb_file" | grep -Fx " Version: $APP_VERSION"
           rpm -qpl "$rpm_file" | grep -Fx '/opt/cloudstream/CloudStream-Desktop/bin/CloudStream-Desktop'
+          ls -l "$appimage_file"
           test -x "$appimage_file"
           test "$(od -An -tx1 -N4 "$appimage_file" | tr -d ' \n')" = "41490200"
 
