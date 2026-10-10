@@ -828,6 +828,15 @@
         if (!isMenuOpen && !isSeeking && (forceHide || !isHoveringControls)) {
             hideTimer = setTimeout(() => {
                 if (!isHoveringControls && !isSeeking && !isMenuOpen) {
+                    // Never idle-hide during probing: the init banner must
+                    // stay visible (and composited) until playback is ready,
+                    // even if the user never touches the mouse. Mirrors the
+                    // probing guard at showControls entry.
+                    const pOvl = document.getElementById('linkProbingOverlay');
+                    const probingActive = pOvl && pOvl.classList.contains('active') &&
+                        !pOvl.classList.contains('dismissing') &&
+                        !userDismissedProbing && !globalIsPlaying && currentPosMs <= 50;
+                    if (probingActive) return;
                     overlay.classList.add('hidden-controls');
                     document.body.classList.add('hidden-controls');
                 }

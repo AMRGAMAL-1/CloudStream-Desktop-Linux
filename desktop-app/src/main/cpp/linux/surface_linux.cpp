@@ -1294,10 +1294,16 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
     // would stretch into a blurry postage stamp). Larger snapshots (e.g. the
     // page briefly laying out taller than the window) are accepted and drawn;
     // freezing the overlay is worse than a few percent of stretch.
+    // DIAG (temporary): log XID liveness + accepted sizes to prove whether
+    // completions land on reused surfaces.
     if (xidCopy != 0) {
         XWindowAttributes wa;
-        if (XGetWindowAttributes(gdk_x11_display_get_xdisplay(gdk_display_get_default()),
-                                     xidCopy, &wa) &&
+        const bool xidOk = XGetWindowAttributes(gdk_x11_display_get_xdisplay(gdk_display_get_default()),
+                                                xidCopy, &wa);
+        if (!xidOk) {
+            LOG_TO_FILE("[NativeBridge:Linux] DIAG snapshot completion: controls XID dead");
+        }
+        if (xidOk &&
                 (cairo_image_surface_get_width(surf) < wa.width ||
                  cairo_image_surface_get_height(surf) < wa.height)) {
                 static guint dropCount = 0;
@@ -1491,6 +1497,17 @@ gboolean compositeTick(gpointer) {
 
     // Snapshot gate: while the controls are hidden, drop the last snapshot
     // so the GL thread draws nothing (normal watching costs zero).
+    // Transition log is permanent lightweight observability (fires rarely):
+    // a gate stuck closed is a black UI with no other symptom.
+    {
+        static bool lastGate = true;
+        const bool gate = g_controlsVisible.load(std::memory_order_relaxed);
+        if (gate != lastGate) {
+            lastGate = gate;
+            LOG_TO_FILE("[NativeBridge:Linux] snapshot gate "
+                << (gate ? "OPEN" : "CLOSED"));
+        }
+    }
     if (!g_controlsVisible) {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_snapSurf) {
