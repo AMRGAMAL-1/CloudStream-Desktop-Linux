@@ -1279,6 +1279,9 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
         g_snapInFlight = false;
         g_snapWaitTicks = 0;
     }
+    // Anomaly logs below are permanent lightweight forensics (a silent
+    // snapshot pipeline is otherwise indistinguishable from a healthy idle
+    // one); they fire only on empty/invalid results, never in steady state.
     if (!surf) {
         LOG_TO_FILE("[NativeBridge:Linux] snapshot completed with null surface");
         return;
@@ -1294,8 +1297,8 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
     // would stretch into a blurry postage stamp). Larger snapshots (e.g. the
     // page briefly laying out taller than the window) are accepted and drawn;
     // freezing the overlay is worse than a few percent of stretch.
-    // DIAG (temporary): log XID liveness + accepted sizes to prove whether
-    // completions land on reused surfaces.
+    // Anomaly detector (permanent, fires rarely): log XID liveness so a
+    // dead controls window on reused surfaces is visible immediately.
     if (xidCopy != 0) {
         XWindowAttributes wa;
         const bool xidOk = XGetWindowAttributes(gdk_x11_display_get_xdisplay(gdk_display_get_default()),
