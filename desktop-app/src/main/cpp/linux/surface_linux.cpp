@@ -11,10 +11,6 @@
 #include <mpv/render.h>
 #include <mpv/render_gl.h>
 #include <webkit2/webkit2.h>
-extern "C" {
-#include <libswscale/swscale.h>
-#include <libavutil/pixfmt.h>
-}
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -230,10 +226,8 @@ struct VlcFrameBuffer {
     std::mutex mutex;
     std::condition_variable callbacksCv;
     // Planar I420 storage: Y (stride*height) + U + V (uvStride*chromaH each).
-    // Decoding straight to the decoder's native planar format keeps VLC's
-    // chroma-converter chain (the observed crash site on odd geometries) out
-    // of the picture; conversion to displayable BGRA happens below via
-    // libswscale under this same mutex.
+    // (Dormant VLC path; conversion helper retired with the swscale build
+    // dependency. See vlcEnsureRgba.)
     std::vector<unsigned char> pixels;
     // Previous pixel generations, kept alive for VLC's display queue: a
     // picture locked before a format renegotiation is still referenced by the
@@ -243,14 +237,8 @@ struct VlcFrameBuffer {
     std::vector<std::vector<unsigned char>> retiredPixels;
     // Converted BGRA staging (width*4*height) for GL upload / cairo paint.
     std::vector<unsigned char> rgba;
-    // Decoded-frame generation the staging was converted from. Repeated draws
-    // of the same frame (forced renders while paused, overlay-only ticks)
-    // reuse the conversion instead of re-running swscale on the GTK thread.
+    // Decoded-frame generation marker (dormant path; see vlcEnsureRgba).
     unsigned long long rgbaFrameCount = 0;
-    struct SwsContext* sws = nullptr;
-    // Geometry the cached sws context was built for (revalidated per call).
-    unsigned swsW = 0;
-    unsigned swsH = 0;
     // Session geometry lock (see vlcVideoFormat): first real size wins.
     bool sizeLocked = false;
     unsigned lockedW = 0;
@@ -1855,10 +1843,6 @@ unsigned vlcVideoFormat(void** opaque, char* chroma, unsigned* width, unsigned* 
     std::fill(frame->pixels.begin(), frame->pixels.end(), 0);
     frame->rgba.assign(static_cast<size_t>(frame->width) * 4 * frame->height, 0);
     frame->rgbaFrameCount = 0;
-    if (frame->sws) {
-        sws_freeContext(frame->sws);
-        frame->sws = nullptr;
-    }
     frame->configured = true;
     // Diagnostic fingerprint (one line per session): crash forensics compares
     // the fault address against this buffer range to attribute VLC picture
@@ -1913,64 +1897,11 @@ void* vlcVideoLock(void* opaque, void** planes) {
 // Convert the latest decoded I420 frame to BGRA staging for display.
 // Caller must hold frame->mutex. Returns false when there is nothing usable.
 static bool vlcEnsureRgba(VlcFrameBuffer* frame) {
-    if (!frame || !frame->configured || frame->pixels.empty() ||
-        frame->width == 0 || frame->height == 0) {
-        return false;
-    }
-    const size_t want = static_cast<size_t>(frame->width) * 4 * frame->height;
-    if (frame->rgba.size() != want) frame->rgba.assign(want, 0);
-    if (frame->rgbaFrameCount == frame->frameCount && !frame->rgba.empty()) return true;
-    // The geometry can shift without a format callback (crop-only changes):
-    // a stale context converts new planes with old dims (green garbage until
-    // the next renegotiation), so revalidate dimensions on every call.
-    if (!frame->sws || frame->swsW != frame->width || frame->swsH != frame->height) {
-        if (frame->sws) {
-            sws_freeContext(frame->sws);
-            frame->sws = nullptr;
-        }
-        frame->sws = sws_getCachedContext(
-            nullptr,
-            static_cast<int>(frame->width), static_cast<int>(frame->height), AV_PIX_FMT_YUV420P,
-            static_cast<int>(frame->width), static_cast<int>(frame->height), AV_PIX_FMT_BGRA,
-            SWS_BICUBIC, nullptr, nullptr, nullptr);
-        if (frame->sws) {
-            frame->swsW = frame->width;
-            frame->swsH = frame->height;
-        } else {
-            return false;
-        }
-        // HD content is BT.709; SD stays BT.601 (libswscale default).
-        if (frame->height >= 720) {
-            int sRange, dRange, brightness, contrast, saturation;
-            const int* invTbl = nullptr;
-            const int* tbl = nullptr;
-            if (sws_getColorspaceDetails(frame->sws, const_cast<int**>(&invTbl), &sRange,
-                                         const_cast<int**>(&tbl), &dRange,
-                                         &brightness, &contrast, &saturation) >= 0) {
-                sws_setColorspaceDetails(frame->sws, sws_getCoefficients(SWS_CS_ITU709),
-                                         sRange, tbl, dRange,
-                                         brightness, contrast, saturation);
-            }
-        }
-    }
-    const unsigned char* base = frame->pixels.data();
-    const unsigned char* src[3] = {
-        base,
-        base + static_cast<size_t>(frame->stride) * frame->height,
-        base + static_cast<size_t>(frame->stride) * frame->height +
-            static_cast<size_t>(frame->uvStride) * frame->chromaH,
-    };
-    const int srcStride[3] = {
-        static_cast<int>(frame->stride),
-        static_cast<int>(frame->uvStride),
-        static_cast<int>(frame->uvStride),
-    };
-    unsigned char* dst[1] = { frame->rgba.data() };
-    const int dstStride[1] = { static_cast<int>(frame->width) * 4 };
-    const bool converted = sws_scale(frame->sws, src, srcStride, 0,
-                                     static_cast<int>(frame->height), dst, dstStride) > 0;
-    if (converted) frame->rgbaFrameCount = frame->frameCount;
-    return converted;
+    // Dormant (mpv-only application): the VLC engine never runs, so no
+    // conversion is ever needed. libswscale was dropped from the build;
+    // returning false keeps the dormant VLC draw paths compiling without it.
+    (void)frame;
+    return false;
 }
 
 void vlcVideoUnlock(void*, void* picture, const void* const*) {
@@ -2376,10 +2307,6 @@ void stopVlcOnGtk() {
             const bool callbacksDone = frame->callbacksCv.wait_for(frameLock, std::chrono::seconds(2), [frame] { return frame->callbacksInFlight == 0; });
             if (!callbacksDone) {
                 LOG_TO_FILE("[NativeBridge:Linux] VLC callback barrier timed out; retaining session context");
-            }
-            if (frame->sws) {
-                sws_freeContext(frame->sws);
-                frame->sws = nullptr;
             }
             // Never free storage here: VLC's display side may still reference
             // planes obtained before Unlock (not covered by the in-flight

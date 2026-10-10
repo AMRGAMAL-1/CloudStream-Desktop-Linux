@@ -36,9 +36,6 @@ JAVA_INCLUDE_LINUX="$JAVA_HOME/include/linux"
 COMMON_INCLUDE="include"
 GTK_FLAGS="$(pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1)"
 MPV_FLAGS="$(pkg-config --cflags mpv)"
-# libswscale converts VLC's planar I420 frames to displayable BGRA in our own
-# code, bypassing VLC's chroma-converter chain (observed crash site).
-SWSCALE_FLAGS="$(pkg-config --cflags --libs libswscale)"
 # XComposite for the offscreen controls-window redirect (composite-redirected
 # overlay). Required at link time now that -z defs rejects dangling symbols.
 XCOMPOSITE_FLAGS="$(pkg-config --cflags --libs xcomposite)"
@@ -61,7 +58,6 @@ echo "Compiling libplayer_bridge.so for Linux..."
     -I"$JAVA_INCLUDE_LINUX" \
     $MPV_FLAGS \
     $GTK_FLAGS \
-    $SWSCALE_FLAGS \
     $XCOMPOSITE_FLAGS \
     -lpthread -ldl -lX11 -lGL
 
