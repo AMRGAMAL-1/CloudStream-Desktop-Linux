@@ -90,6 +90,10 @@ exe_test_out.txt
 docs/
 code-review/
 
+# Exception: curated screenshots published in the README gallery.
+!docs/screenshots/
+!docs/screenshots/*.png
+
 # Exceptions for WebView2 SDK
 !desktop-app/src/main/cpp/webview2/build/
 !desktop-app/src/main/cpp/webview2/build/**
