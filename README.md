@@ -18,6 +18,35 @@ Built with **Compose Multiplatform** for 64-bit Linux. Runs Android CloudStream 
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/home-hero.png" width="49%" alt="Home hero with Continue Watching" />
+  <img src="docs/screenshots/home-shelves.png" width="49%" alt="Home shelves and providers" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/explore-hero.png" width="49%" alt="Explore spotlight" />
+  <img src="docs/screenshots/networks-popular.png" width="49%" alt="Streaming networks and popular shelves" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/details-episodes.png" width="49%" alt="Details page with episodes" />
+  <img src="docs/screenshots/extension-sources.png" width="49%" alt="Extension sources dialog" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/streams-panel.png" width="49%" alt="Stream links panel" />
+  <img src="docs/screenshots/probing.png" width="49%" alt="Probing screen testing sources" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/player.png" width="49%" alt="Embedded player with controls" />
+  <img src="docs/screenshots/search.png" width="49%" alt="Search" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/plugins.png" width="49%" alt="Extensions and plugins" />
+  <img src="docs/screenshots/about.png" width="49%" alt="About CloudStream Linux Edition" />
+</p>
+
+---
+
 ## Features
 
 - Native desktop client (Compose Multiplatform, Amoled dark theme, desktop window controls)
