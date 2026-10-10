@@ -1,6 +1,12 @@
 # CloudStream Desktop for Linux
 
-Unofficial native CloudStream desktop client for Linux.
+[![GitHub Release](https://img.shields.io/github/v/release/AMRGAMAL-1/CloudStream-Desktop-Linux?filter=linux-v*&label=release)](https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Linux](https://img.shields.io/badge/platform-linux--x86__64-lightgrey)](https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux/releases)
+
+*Free media center for streaming and downloading movies, TV shows and anime. Extension-based, ad-free, with watch tracking — now as a native Linux desktop app.*
+
+Unofficial native CloudStream desktop client for Linux, maintained by AMR GAMAL.
 
 Built with **Compose Multiplatform** for 64-bit Linux. Runs Android CloudStream extensions natively on a desktop JVM — no emulators, no compatibility layers.
 
@@ -16,7 +22,7 @@ Built with **Compose Multiplatform** for 64-bit Linux. Runs Android CloudStream 
 
 - Native desktop client (Compose Multiplatform, Amoled dark theme, desktop window controls)
 - Runs Android CloudStream extensions on the JVM (DEX-to-JVM transcompilation + sandbox)
-- Hardware-accelerated playback via system `libmpv`, with optional system `libVLC` backend
+- Hardware-accelerated playback via system `libmpv` (sole playback engine)
 - Embedded WebKitGTK player surface reusing the shared `player.html` / `player.css` / `player.js`
 - Local SQLite persistence (history, preferences, state) via SQLDelight
 - `cloudstream --version` / `cloudstream --diagnostics` support commands for bug reports
@@ -36,7 +42,6 @@ Built with **Compose Multiplatform** for 64-bit Linux. Runs Android CloudStream 
 | libmpv (`.so.2` or `.so.1`) | Hardware-accelerated video decoding |
 | X11 / OpenGL / EGL | Rendering (`libX11`, `libGL`, `libEGL`) |
 | XWayland + `DISPLAY` | Required on Wayland sessions (see below) |
-| libVLC (optional) | Only needed when the VLC backend is selected |
 
 For an exact machine check, run:
 
@@ -63,25 +68,25 @@ The check is soname-based (not package-name-based), so it works across Debian/Ub
 
 ## Installation
 
-Download the latest release from [GitHub Releases](https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux/releases) (titled `CloudStream <version>`, e.g. **CloudStream 0.1.9**).
+Download the latest release from [GitHub Releases](https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux/releases) (titled `CloudStream <version>`, e.g. **CloudStream 0.1.10**).
 
 ```bash
 # Debian / Ubuntu / Deepin / Mint
-sudo dpkg -i cloudstream-desktop_0.1.9_amd64.deb
+sudo dpkg -i cloudstream-desktop_0.1.10_amd64.deb
 cloudstream --version
 
 # Fedora / RHEL-family / openSUSE
-sudo rpm -i cloudstream-desktop-0.1.9-1.x86_64.rpm
+sudo rpm -i cloudstream-desktop-0.1.10-1.x86_64.rpm
 cloudstream --version
 
 # Portable TAR (any supported distro)
-tar -xzf CloudStream-Desktop-0.1.9-linux-x86_64.tar.gz
+tar -xzf CloudStream-Desktop-0.1.10-linux-x86_64.tar.gz
 ./CloudStream-Desktop/bin/CloudStream-Desktop --version
 # or use the bundled launcher: ./cloudstream --version
 
 # AppImage (any supported distro)
-chmod +x CloudStream-Desktop-0.1.9-linux-x86_64.AppImage
-./CloudStream-Desktop-0.1.9-linux-x86_64.AppImage --version
+chmod +x CloudStream-Desktop-0.1.10-linux-x86_64.AppImage
+./CloudStream-Desktop-0.1.10-linux-x86_64.AppImage --version
 ```
 
 Uninstall:
@@ -96,14 +101,14 @@ sudo rpm -e cloudstream-desktop
 
 ## Available packages
 
-Every release publishes four artifacts for x86_64 (filenames use the numeric version, e.g. `0.1.9`):
+Every release publishes four artifacts for x86_64 (filenames use the numeric version, e.g. `0.1.10`):
 
 | Format | Filename pattern | Notes |
 | --- | --- | --- |
 | DEB | `cloudstream-desktop_<version>_amd64.deb` | Technical package ID stays lowercase (`cloudstream-desktop`) so upgrades keep working; installs to `/opt/cloudstream/CloudStream-Desktop`, launcher is `cloudstream` |
 | RPM | `cloudstream-desktop-<version>-1.x86_64.rpm` | Same layout and launcher as the DEB |
 | TAR.GZ | `CloudStream-Desktop-<version>-linux-x86_64.tar.gz` | Portable; run `CloudStream-Desktop/bin/CloudStream-Desktop` or the bundled `cloudstream` launcher |
-| AppImage | `CloudStream-Desktop-<version>-linux-x86_64.AppImage` | Portable; leaves GTK/WebKitGTK, libmpv, libVLC and GPU drivers host-provided |
+| AppImage | `CloudStream-Desktop-<version>-linux-x86_64.AppImage` | Portable; leaves GTK/WebKitGTK, libmpv and GPU drivers host-provided |
 
 The menu entry is **CloudStream Desktop** (`com.cloudstream.CloudStreamDesktop.desktop`). The display name uses the `CloudStream` capitalization; the lowercase `cloudstream-desktop` package ID and `/opt/cloudstream` paths are intentionally kept stable for existing installations.
 
@@ -121,7 +126,7 @@ sudo apt install build-essential cmake pkg-config libgtk-3-dev libwebkit2gtk-4.1
 # 3. Build the native bridge, run all JVM tests, and produce the runtime image
 ./gradlew :plugin-runtime:test :player-abstraction:test :desktop-app:test \
     :desktop-app:linuxNativeBridge :desktop-app:createDistributable \
-    --no-daemon -PAPP_VERSION="0.1.9"
+    --no-daemon -PAPP_VERSION="0.1.10"
 
 # 4. Preflight the host dependencies
 bash desktop-app/check-linux-dependencies.sh
@@ -147,33 +152,33 @@ Run in development mode:
 ./gradlew :desktop-app:run
 ```
 
-The packaged launcher resolves the native bridge from `lib/app/resources/jni/libplayer_bridge.so` inside the runtime image. The `cloudstream` launcher (DEB/RPM) and `AppRun` (AppImage/TAR) export `VLC_PLUGIN_PATH` when a bundled plugin directory exists; otherwise libVLC discovers the system plugins through `libvlccore`.
+The packaged launcher resolves the native bridge from `lib/app/resources/jni/libplayer_bridge.so` inside the runtime image.
 
 ## Known issues / limitations
 
 - **Wayland without XWayland is not supported.** On Wayland sessions, XWayland and a valid `DISPLAY` are required because the embedded surface is X11-based.
-- **Host libraries are not bundled.** GTK 3, WebKitGTK 4.1, libmpv, X11/OpenGL/EGL (and libVLC when selected) must come from the distribution; missing ones are reported by `check-linux-dependencies.sh` and `cloudstream --diagnostics`.
+- **Host libraries are not bundled.** GTK 3, WebKitGTK 4.1, libmpv, X11/OpenGL/EGL must come from the distribution; missing ones are reported by `check-linux-dependencies.sh` and `cloudstream --diagnostics`.
 - **Below-baseline distros** (Debian 11 / Ubuntu 20.04 / openSUSE Leap 15.x, glibc 2.31) cannot use the prebuilt packages — build from source on that system instead.
 - **ARM64 is experimental.** DEB/TAR packaging selects arm64, but media playback on ARM GPUs is not validated yet.
-- **Codec gaps** come from the system GStreamer/VLC/FFmpeg packages — install the distribution's normal codec bundle when a preview or stream format is unavailable.
+- **Codec gaps** come from the system GStreamer/FFmpeg packages — install the distribution's normal codec bundle when a preview or stream format is unavailable.
 - Storage schemas and internal APIs may still change between early releases.
 
 ## Updating
 
-Linux builds check **only** this repository's releases (`AMRGAMAL-1/CloudStream-Desktop-Linux`) and accept **only** tags of the form `linux-v<version>` (e.g. `linux-v0.1.9`). The `linux-` prefix is the internal Git tag format the updater depends on; the version shown to users is always the plain numeric version (`0.1.9`), and release titles read **CloudStream 0.1.9**. Until a tagged Linux release exists, update checks simply find nothing and stay quiet by design. Dev builds can override the channel with `-Dcloudstream.linux.update.repo=owner/repo`.
+Linux builds check **only** this repository's releases (`AMRGAMAL-1/CloudStream-Desktop-Linux`) and accept **only** tags of the form `linux-v<version>` (e.g. `linux-v0.1.10`). The `linux-` prefix is the internal Git tag format the updater depends on; the version shown to users is always the plain numeric version (`0.1.10`), and release titles read **CloudStream 0.1.10**. Until a tagged Linux release exists, update checks simply find nothing and stay quiet by design. Dev builds can override the channel with `-Dcloudstream.linux.update.repo=owner/repo`.
 
 To publish a release, maintainers push a tag; CI then builds, tests, packages and uploads all formats:
 
 ```bash
-git tag linux-v0.1.9 && git push origin linux-v0.1.9
+git tag linux-v0.1.10 && git push origin linux-v0.1.10
 ```
 
 ## Versioning
 
-- **User-facing version:** numeric, e.g. `0.1.9` (single source of truth: `APP_VERSION` in `gradle.properties`).
-- **Git tag:** `linux-v0.1.9` (required by the updater's `linux-v` prefix check — do not change one without the other).
-- **GitHub Release title:** `CloudStream 0.1.9`.
-- **Artifacts:** `CloudStream-Desktop-0.1.9-linux-x86_64.tar.gz` / `.AppImage`, `cloudstream-desktop_0.1.9_amd64.deb`, `cloudstream-desktop-0.1.9-1.x86_64.rpm`.
+- **User-facing version:** numeric, e.g. `0.1.10` (single source of truth: `APP_VERSION` in `gradle.properties`).
+- **Git tag:** `linux-v0.1.10` (required by the updater's `linux-v` prefix check — do not change one without the other).
+- **GitHub Release title:** `CloudStream 0.1.10`.
+- **Artifacts:** `CloudStream-Desktop-0.1.10-linux-x86_64.tar.gz` / `.AppImage`, `cloudstream-desktop_0.1.10_amd64.deb`, `cloudstream-desktop-0.1.10-1.x86_64.rpm`.
 
 ## Disclaimer
 

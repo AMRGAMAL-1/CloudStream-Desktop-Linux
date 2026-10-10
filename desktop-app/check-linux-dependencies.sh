@@ -18,7 +18,6 @@ required_runtime=(
 )
 mpv_runtime=("libmpv.so.2" "libmpv.so.1")
 optional_runtime=(
-  "libvlc.so.5|libVLC (required only when VLC is selected)"
   "libwayland-client.so.0|Wayland client (only for a Wayland session)"
 )
 build_tools=(
@@ -180,5 +179,5 @@ if (( fail > 0 )); then
   printf 'The application/player cannot be considered ready on this system.\n'
   exit 1
 fi
-printf 'MPV/WebKit runtime prerequisites are present. Install libVLC to enable the VLC backend.\n'
+printf 'MPV/WebKit runtime prerequisites are present.\n'
 exit 0
