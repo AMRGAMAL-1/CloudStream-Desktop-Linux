@@ -78,6 +78,10 @@ std::atomic<long long> g_vlcPresentedFrames{0};
 // Snapshot pipeline state: async WebKit snapshot -> GL texture.
 bool g_snapInFlight = false;
 guint g_snapGen = 0;
+// Serial number of the stored snapshot content. Lets the GL draw skip
+// re-uploading an unchanged snapshot (pointer reuse after free would fool a
+// pointer comparison; a serial cannot).
+static unsigned long long g_snapSerial = 0;
 guint g_snapWaitTicks = 0;
 GCancellable* g_snapCancel = nullptr;
 cairo_surface_t* g_snapSurf = nullptr;
@@ -1113,18 +1117,34 @@ static bool drawControlsSnapshot(int width, int height) {
     cairo_surface_flush(surf);
     // Reuse one GL texture across frames; realloc only when the snapshot
     // size changes. Per-frame gen/delete caused driver churn and stutter.
+    // Skip the upload entirely when the stored snapshot did not change since
+    // the last upload (static UI over playing video costs zero this way).
+    static unsigned long long uploadedSerial = 0;
+    static int uploadedW = 0;
+    static int uploadedH = 0;
     if (g_overlayTex == 0) glGenTextures(1, &g_overlayTex);
+    const bool freshTex = (g_overlayTexW == 0 && g_overlayTexH == 0);
     glBindTexture(GL_TEXTURE_2D, g_overlayTex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    unsigned long long serial = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_lifecycleMutex);
+        serial = g_snapSerial;
+    }
     const unsigned char* pixels = cairo_image_surface_get_data(surf);
-    if (sw != g_overlayTexW || sh != g_overlayTexH) {
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sw, sh, 0, GL_BGRA,
-                     GL_UNSIGNED_BYTE, pixels);
-        g_overlayTexW = sw;
-        g_overlayTexH = sh;
-    } else {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sw, sh, GL_BGRA,
-                        GL_UNSIGNED_BYTE, pixels);
+    if (freshTex || serial != uploadedSerial || sw != uploadedW || sh != uploadedH) {
+        if (sw != g_overlayTexW || sh != g_overlayTexH) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sw, sh, 0, GL_BGRA,
+                         GL_UNSIGNED_BYTE, pixels);
+            g_overlayTexW = sw;
+            g_overlayTexH = sh;
+        } else {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, sw, sh, GL_BGRA,
+                            GL_UNSIGNED_BYTE, pixels);
+        }
+        uploadedSerial = serial;
+        uploadedW = sw;
+        uploadedH = sh;
     }
     const bool ok = drawOverlayTexture(g_overlayTex, sw, sh, true);
     cairo_surface_destroy(surf);
@@ -1340,6 +1360,7 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_snapSurf) cairo_surface_destroy(g_snapSurf);
         g_snapSurf = surf;
+        ++g_snapSerial;
         g_lastSnapDoneUs = g_get_monotonic_time();
     }
 }
@@ -1347,11 +1368,15 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
 // Request one overlay snapshot, paired with a repaint invalidate. Called only
 // from the render path (same GTK thread), so every snapshot is consumed by a
 // composite exactly once: zero waste, self-throttling to the display rate.
+// Throttled to ~15fps: fullscreen software snapshots + GL uploads every frame
+// saturate weak iGPUs (stuttering video AND overlay). UI animation stays
+// smooth at 15fps; the upload-skip in drawControlsSnapshot removes the rest.
 static void requestOverlaySnapshot(GtkWidget* controlsWin, WebKitWebView* webView) {
     if (!controlsWin || !GTK_IS_WIDGET(controlsWin) || !webView || !WEBKIT_IS_WEB_VIEW(webView)) return;
     {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_teardownRequested || g_webView != webView || g_snapInFlight) return;
+        if (g_get_monotonic_time() - g_lastSnapReqUs < 66000) return;
         g_snapInFlight = true;
         g_snapWaitTicks = 0;
         if (!g_snapCancel) g_snapCancel = g_cancellable_new();
