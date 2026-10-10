@@ -174,6 +174,7 @@ make_appimage() {
     cp "$root_dir/src/main/resources/linux_icon.png" "$appdir/com.cloudstream.CloudStreamDesktop.png"
     local archive="$output_dir/CloudStream-Desktop-${version}-linux-$(uname -m).AppImage"
     ARCH="$(uname -m)" appimagetool "$appdir" "$archive"
+    chmod +x "$archive"
     echo "Created $archive"
 }
 
