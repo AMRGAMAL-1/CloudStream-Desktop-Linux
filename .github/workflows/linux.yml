@@ -118,7 +118,7 @@ jobs:
           rpm -qpl "$rpm_file" | grep -Fx '/opt/cloudstream/CloudStream-Desktop/bin/CloudStream-Desktop'
           ls -l "$appimage_file"
           test -x "$appimage_file"
-          test "$(od -An -tx1 -N3 "$appimage_file" | tr -d ' \n')" = "414902"
+          test "$(od -An -tx1 -N4 "$appimage_file" | tr -d ' \n')" = "7f454c46"
 
       - name: Smoke-test package install and uninstall
         shell: bash
