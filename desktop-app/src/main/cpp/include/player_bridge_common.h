@@ -14,6 +14,9 @@
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <chrono>
+#include <ctime>
+#include <cstdio>
 #endif
 
 #ifdef _WIN32
@@ -42,6 +45,20 @@ extern std::mutex g_logMutex;
     } while(0)
 #else
 std::string nativeLogPath();
+// HH:MM:SS.mmm prefix so multi-run native logs stay correlatable with the
+// timestamped app log. Inline + lock-free (callers already hold g_logMutex).
+inline std::string nativeLogTimestamp() {
+    const auto now = std::chrono::system_clock::now();
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tmv{};
+    localtime_r(&t, &tmv);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d ",
+        tmv.tm_hour, tmv.tm_min, tmv.tm_sec, static_cast<int>(ms.count()));
+    return std::string(buf);
+}
 #define LOG_TO_FILE(msg) \
     do { \
         std::lock_guard<std::mutex> lock(g_logMutex); \
@@ -56,8 +73,8 @@ std::string nativeLogPath();
                 ::chmod(logPath.c_str(), S_IRUSR | S_IWUSR); \
             } \
         } \
-        g_logFile << msg << std::endl; \
-        std::cout << msg << std::endl; \
+        g_logFile << nativeLogTimestamp() << msg << std::endl; \
+        std::cout << nativeLogTimestamp() << msg << std::endl; \
     } while(0)
 #endif
 

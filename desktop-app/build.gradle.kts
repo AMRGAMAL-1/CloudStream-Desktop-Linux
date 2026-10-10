@@ -171,7 +171,8 @@ compose.desktop {
         }
 
         nativeDistributions {
-            // Inno Setup (installer/setup.iss) handles packaging — no native installer format needed here
+            // Linux packages (TAR/DEB/RPM/AppImage) are built by
+            // desktop-app/packaging/build-linux-packages.sh — no native installer format needed here
             packageName = "CloudStream-Desktop"
             // jpackage STRICTLY requires version to be numeric (e.g. 0.1.5). Strip any -beta or -pre-alpha suffixes.
             packageVersion = project.findProperty("APP_VERSION")?.toString()?.substringBefore('-') ?: "0.0.0"
@@ -215,17 +216,7 @@ tasks.matching { it.name == "run" }.configureEach {
     )
 }
 
-val generateInstallerVersion by tasks.registering {
-    val versionFile = project.file("../installer/version.iss")
-    outputs.file(versionFile)
-    doLast {
-        val appVer = project.findProperty("APP_VERSION")?.toString()?.takeIf { it.isNotBlank() } ?: "0.1.0-dev"
-        versionFile.writeText("#define AppVersion \"$appVer\"")
-    }
-}
-
 tasks.named("processResources") {
-    dependsOn(generateInstallerVersion)
     if (isLinuxHost) dependsOn(linuxNativeBridge)
 }
 

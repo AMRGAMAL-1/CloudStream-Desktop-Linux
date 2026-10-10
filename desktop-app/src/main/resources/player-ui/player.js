@@ -8,6 +8,26 @@
     };
     const send = window.send; // local alias for script-internal use
 
+    // Flicker-free overlay (root fix): report the controls page visibility to
+    // the native bridge. The bridge composites a snapshot of this page inside
+    // the mpv GL pass while it is visible, and draws nothing while hidden.
+    const syncNativeOverlayVisibility = () => {
+        try {
+            const pOvl = document.getElementById('linkProbingOverlay');
+            const vOvl = document.getElementById('videoEndedOverlay');
+            const visible =
+                (pOvl && pOvl.classList.contains('active')) ||
+                (vOvl && vOvl.style.display === 'flex') ||
+                isMenuOpen ||
+                !document.body.classList.contains('hidden-controls');
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({ type: 'controlsVisibility', value: visible ? '1' : '0' });
+            }
+        } catch (error) {
+            console.error('[VisibilitySync]', error);
+        }
+    };
+
     window.onerror = function(msg, url, line, col, error) {
         console.error('[WebView Error]', msg, url, line, col, error);
         try {
@@ -368,6 +388,7 @@
         // Kill all pending timers that could fire from a stale session
         if (window.resumeDismissTimer) { clearTimeout(window.resumeDismissTimer); window.resumeDismissTimer = null; }
         if (window.probingDismissTimer) { clearTimeout(window.probingDismissTimer); window.probingDismissTimer = null; }
+        if (typeof hideTimer !== 'undefined' && hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
         if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
         if (endCountdownTimer) { clearInterval(endCountdownTimer); endCountdownTimer = null; }
         if (_probingPacerTimer) { clearTimeout(_probingPacerTimer); _probingPacerTimer = null; }
@@ -386,6 +407,10 @@
         // Reset all session-scoped JS state
         resumeHandled = false;
         userDismissedProbing = false;
+        // Invalidate the previous session's metadata: judging the new session
+        // (e.g. auto-dismiss) on stale lastMeta kills the banner with data
+        // from a dead session. Repopulated by the next metadata push.
+        window.lastMeta = null;
         pendingResumeMs = 0;
         durationMs = 0;
         currentPosMs = 0;
@@ -668,9 +693,9 @@
         play:  `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18c.62-.39.62-1.29 0-1.69L9.54 5.98C8.87 5.55 8 6.03 8 6.82z"/></svg>`,
         pause: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M8 19c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2v10c0 1.1.9 2 2 2zm6-12v10c0 1.1.9 2 2 2s2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2z"/></svg>`,
         rewind10: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`,
-        forward10: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 8-8 8-8z"/></svg>`,
+        forward10: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg>`,
         rewind: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>`,
-        forward: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 8-8 8-8z"/></svg>`,
+        forward: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg>`,
         volHigh:`<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`,
         volMed: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>`,
         volLow: `<svg viewBox="0 0 24 24" fill="currentColor" width="100%" height="100%"><path d="M7 9v6h4l5 5V4L11 9H7z"/></svg>`,
@@ -804,6 +829,19 @@
         if (!isMenuOpen && !isSeeking && (forceHide || !isHoveringControls)) {
             hideTimer = setTimeout(() => {
                 if (!isHoveringControls && !isSeeking && !isMenuOpen) {
+                    // Never idle-hide during probing: the init banner must
+                    // stay visible (and composited) until playback is ready,
+                    // even if the user never touches the mouse. Mirrors the
+                    // probing guard at showControls entry. Also never hide
+                    // before the session's first metadata arrived (stale
+                    // timers from a previous session must not kill the new
+                    // one while its page is still loading).
+                    if (!window.lastMeta) return;
+                    const pOvl = document.getElementById('linkProbingOverlay');
+                    const probingActive = pOvl && pOvl.classList.contains('active') &&
+                        !pOvl.classList.contains('dismissing') &&
+                        !userDismissedProbing && !globalIsPlaying && currentPosMs <= 50;
+                    if (probingActive) return;
                     overlay.classList.add('hidden-controls');
                     document.body.classList.add('hidden-controls');
                 }
@@ -919,6 +957,7 @@
         document.body.classList.remove('subs-panel-open');
         showControls();
         evaluateResumeOverlay();
+        syncNativeOverlayVisibility();
     };
     // Expose on window so inline onclick="closeAllPanels()" attributes work
     window.closeAllPanels = closeAllPanels;
@@ -947,6 +986,9 @@
                     renderFilteredEpisodes(currentSelectedSeason, typeof currentSelectedChunk !== 'undefined' ? currentSelectedChunk : -1, true);
                 }
             }
+            syncNativeOverlayVisibility();
+        } else {
+            syncNativeOverlayVisibility();
         }
     };
     // Expose so inline onclick and context menu items can call it
@@ -1566,11 +1608,13 @@
         // Ensure probing overlay is dismissed once playback is buffered and actively rendering
         const pOverlay = document.getElementById('linkProbingOverlay');
         if (pOverlay && pOverlay.classList.contains('active') && !pOverlay.classList.contains('dismissing')) {
+            // No metadata processed yet for this session (e.g. parked page
+            // before the first push lands): never judge on stale/absent data.
             const isKotlinProbing = (window.lastMeta && window.lastMeta.isProbing === true);
             const forwardBufferMs = (typeof s.bufferMs === 'number' && typeof s.positionMs === 'number') ? (s.bufferMs - s.positionMs) : 0;
             const isBufferHealthy = forwardBufferMs >= 3000 || (typeof s.positionMs === 'number' && s.positionMs >= 400);
             const isActivelyPlaying = globalIsPlaying || (typeof s.positionMs === 'number' && s.positionMs > 200);
-            if (!isKotlinProbing && !isAppLoading && (!s.isLoading || isBufferHealthy || isActivelyPlaying)) {
+            if (window.lastMeta && !isKotlinProbing && !isAppLoading && (!s.isLoading || isBufferHealthy || isActivelyPlaying)) {
                 dismissProbingOverlay(true);
             }
         }
@@ -6807,3 +6851,27 @@
             if (!_uiReadyDispatched) send('ui_ready');
         }
     }, 250);
+
+    // Watch visibility toggles and keep the native snapshot compositor in
+    // sync with the web UI state. Body class covers idle show/hide, but
+    // probing/menu/ended overlays change on their own nodes.
+    if (document.body) {
+        try {
+            const visObserver = new MutationObserver(function () { syncNativeOverlayVisibility(); });
+            visObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+            const pOvl0 = document.getElementById('linkProbingOverlay');
+            if (pOvl0) visObserver.observe(pOvl0, { attributes: true, attributeFilter: ['class', 'style'] });
+            const vOvl0 = document.getElementById('videoEndedOverlay');
+            if (vOvl0) visObserver.observe(vOvl0, { attributes: true, attributeFilter: ['class', 'style'] });
+        } catch (error) {
+            console.error('[VisibilitySync] observer failed', error);
+        }
+        syncNativeOverlayVisibility();
+    }
+
+    // DIAGNOSTIC: report the layout viewport size so the native bridge can
+    // verify the page lays out at the video size (an offscreen window can
+    // freeze its layout at the initial size).
+    if (window.chrome && window.chrome.webview && window.innerWidth > 0) {
+        window.chrome.webview.postMessage({ type: 'viewportDiag', value: window.innerWidth + 'x' + window.innerHeight });
+    }

@@ -10,7 +10,6 @@ data class LinksUiState(
     val subtitles: List<SubtitleFile> = emptyList(),
     val statusText: String = "",
     val isScraping: Boolean = false,
-    val preferredPlayer: String = "mpv",
     val autoPlayEnabled: Boolean = true,
     val isLaunchingPlayer: Boolean = false,
     val playerLaunchError: String? = null,

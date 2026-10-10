@@ -36,6 +36,9 @@ JAVA_INCLUDE_LINUX="$JAVA_HOME/include/linux"
 COMMON_INCLUDE="include"
 GTK_FLAGS="$(pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1)"
 MPV_FLAGS="$(pkg-config --cflags mpv)"
+# XComposite for the offscreen controls-window redirect (composite-redirected
+# overlay). Required at link time now that -z defs rejects dangling symbols.
+XCOMPOSITE_FLAGS="$(pkg-config --cflags --libs xcomposite)"
 CXX="${CXX:-g++}"
 
 if ! command -v "$CXX" >/dev/null 2>&1; then
@@ -46,7 +49,7 @@ fi
 echo "Compiling libplayer_bridge.so for Linux..."
 
 "$CXX" -shared -fPIC -std=c++17 -O2 \
-    -Wl,-z,relro,-z,now \
+    -Wl,-z,relro,-z,now,-z,defs \
     -o "$SO_OUTPUT" \
     common/mpv_core.cpp \
     linux/surface_linux.cpp \
@@ -55,6 +58,7 @@ echo "Compiling libplayer_bridge.so for Linux..."
     -I"$JAVA_INCLUDE_LINUX" \
     $MPV_FLAGS \
     $GTK_FLAGS \
-    -lpthread -ldl -lX11
+    $XCOMPOSITE_FLAGS \
+    -lpthread -ldl -lX11 -lGL
 
 echo "Compilation successful! SO output to: $SO_OUTPUT"

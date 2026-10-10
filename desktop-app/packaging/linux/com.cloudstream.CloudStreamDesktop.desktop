@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=CloudStream Desktop
-Comment=CloudStream desktop media client
+Comment=Free media center for streaming and downloading movies, TV shows and anime
 Exec=cloudstream %U
 Icon=com.cloudstream.CloudStreamDesktop
 Terminal=false

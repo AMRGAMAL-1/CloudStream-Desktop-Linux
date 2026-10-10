@@ -80,7 +80,6 @@ fun LinksSidePanel(
     val isScraping = uiState.isScraping
 
     val playVideo = com.lagradost.cloudstream3.desktop.ui.LocalVideoPlayer.current
-    val selectedPlayer = uiState.preferredPlayer
     val isLaunchingPlayer = uiState.isLaunchingPlayer
     val playerLaunchError = uiState.playerLaunchError
     val currentPlayingUrl = uiState.currentPlayingUrl
@@ -413,39 +412,7 @@ fun LinksSidePanel(
                         .padding(horizontal = 20.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Player Selector Toggle (MPV / VLC)
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DesktopUi.Divider.copy(alpha = 0.35f)),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            listOf("mpv" to "MPV", "vlc" to "VLC").forEach { (id, label) ->
-                                val isSel = selectedPlayer == id
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isSel) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .clickable { viewModel.onEvent(LinksUiEvent.OnPreferredPlayerChanged(id)) },
-                                ) {
-                                    Text(
-                                        text = label,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSel) MaterialTheme.colorScheme.onPrimary else DesktopUi.TextMuted,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
+                    // mpv-only application: player selector removed (was MPV / VLC).
                     // Addon / Provider Source Chips
                     val sourceScrollState = rememberScrollState()
                     Row(

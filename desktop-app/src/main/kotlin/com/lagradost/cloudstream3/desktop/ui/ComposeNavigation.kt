@@ -60,7 +60,7 @@ data class VideoLaunchData(
     val enrichedLogoUrl: String? = null,
     val enrichedBackdropUrl: String? = null,
     val enrichedActors: List<com.lagradost.cloudstream3.ActorData>? = null,
-    /** Embedded playback backend. MPV remains the default; VLC is native on Linux. */
+    /** Retained for launch-data compatibility; always "mpv" (sole engine). */
     val playerBackend: String = "mpv",
 )
 
@@ -117,6 +117,7 @@ fun CloudstreamApp(rootComponent: RootComponent) {
     val typography = androidx.compose.runtime.remember(selectedFont, arabicFontChoice) {
         com.lagradost.cloudstream3.desktop.ui.theme.buildTypography(
             com.lagradost.cloudstream3.desktop.ui.theme.getFontFamily(selectedFont, arabicFontChoice),
+            arabicFontChoice,
         )
     }
 

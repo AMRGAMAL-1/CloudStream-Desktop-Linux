@@ -165,6 +165,14 @@ fun main(args: Array<String> = emptyArray()) {
     Runtime.getRuntime().addShutdownHook(
         Thread {
             com.lagradost.cloudstream3.desktop.discord.DiscordRpcManager.shutdown()
+            // Quit the Linux GTK loop and join its thread: a parked reusable
+            // surface otherwise outlives the JVM shutdown and aborts the
+            // process via a joinable std::thread destructor (SIGABRT).
+            runCatching {
+                if (System.getProperty("os.name", "").lowercase().contains("linux")) {
+                    com.lagradost.cloudstream3.desktop.player.webview.NativePlayerBridge.shutdownNative()
+                }
+            }
         },
     )
 

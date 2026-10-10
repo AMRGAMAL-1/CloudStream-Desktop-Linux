@@ -72,7 +72,6 @@ fun ComposeNativeWebPlayer(
     reloadKey: Int = 0,
     onRetryPlayback: (() -> Unit)? = null,
     parentId: String? = null,
-    backend: String = "mpv",
 ) {
     if (!NativePlayerBridge.isAvailable()) {
         LaunchedEffect(Unit) {
@@ -81,39 +80,7 @@ fun ComposeNativeWebPlayer(
         return
     }
 
-    if (backend.equals("vlc", ignoreCase = true)) {
-        ComposeNativeVlcPlayer(
-            modifier = modifier,
-            link = link,
-            title = title,
-            backdropUrl = backdropUrl,
-            logoUrl = logoUrl,
-            seriesPosterUrl = seriesPosterUrl,
-            links = links,
-            currentLinkIndex = currentLinkIndex,
-            episodes = episodes,
-            currentEpisodeId = currentEpisodeId,
-            currentEpisodeNumber = currentEpisodeNumber,
-            currentSeasonNumber = currentSeasonNumber,
-            subtitles = subtitles,
-            startPositionMs = startPositionMs,
-            onPlaybackReady = onPlaybackReady,
-            onPlaybackError = onPlaybackError,
-            onFinished = onFinished,
-            onPositionChange = onPositionChange,
-            onCloseRequest = onCloseRequest,
-            isExiting = isExiting,
-            onSkipScraping = onSkipScraping,
-            onFullscreenToggle = onFullscreenToggle,
-            playerState = playerState,
-            onLinkChange = onLinkChange,
-            onEpisodeChange = onEpisodeChange,
-            onNextEpisode = onNextEpisode,
-            onReplayEpisode = onReplayEpisode,
-            reloadKey = reloadKey,
-        )
-        return
-    }
+    // mpv-only application: no backend branching. (VLC support removed.)
 
     val scope = rememberCoroutineScope()
     val persistentSubtitles = remember { androidx.compose.runtime.mutableStateListOf<String>() }
@@ -532,6 +499,11 @@ fun ComposeNativeWebPlayer(
         }
     }
 
+    // NOTE: no mount-time session push effect by design. Pushes race page
+    // load/reattach and die silently with no refire (black sessions); the
+    // UiReady handshake (fresh load) and the UiReady-gated effects above
+    // (in-player switches, isUiReady persists) cover every path instead —
+    // exactly the GitHub-stable flow.
     BaseMpvPlayer(
         modifier = modifier,
         link = link,
@@ -1294,6 +1266,12 @@ fun ComposeNativeWebPlayer(
                 }
             })
 
+            // Always reload the controls page per player open (GitHub-stable
+            // lifecycle): a fresh load refires UiReady, which re-pushes all
+            // state and fully recovers the banner/controls. Skipping the
+            // reload on the parked page (reuse optimization) left session ≥2
+            // with stale/frozen UI — reverted deliberately; the 1-2s blank is
+            // the accepted known-good tradeoff.
             if (tempFile.exists()) {
                 NativePlayerBridge.loadUrl(tempFile.absoluteFile.toURI().toString())
             }

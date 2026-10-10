@@ -73,6 +73,20 @@ fun EmbeddedVideoPlayer(
     val isFullscreen = fullscreenController?.isFullscreen ?: false
     val initialPlacement = remember { windowState?.placement ?: WindowPlacement.Floating }
 
+    // Never leave the main window stuck in fullscreen when the player goes
+    // away: a stale isFullscreen + cached restore bounds corrupts the next
+    // fullscreen cycle and the window state (maximize/minimize) after it.
+    DisposableEffect(fullscreenController) {
+        onDispose {
+            try {
+                if (fullscreenController?.isFullscreen == true) {
+                    fullscreenController?.toggle?.invoke()
+                }
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     val playerState = viewModel.playerState
 
     LaunchedEffect(actualLaunchData.history.episodeId) {
@@ -338,7 +352,6 @@ fun EmbeddedVideoPlayer(
                             fullscreenController?.toggle?.invoke()
                         },
                         playerState = playerState,
-                        backend = actualLaunchData.playerBackend,
                     )
                 } // end outer Box
             } // end if (!error && !finished)

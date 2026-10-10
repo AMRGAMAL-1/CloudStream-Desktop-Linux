@@ -31,12 +31,14 @@ if(WIN32)
 elseif(UNIX AND NOT APPLE)
     find_package(PkgConfig REQUIRED)
     find_package(X11 REQUIRED)
+    find_package(OpenGL REQUIRED)
     pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
     pkg_check_modules(WEBKITGTK REQUIRED IMPORTED_TARGET webkit2gtk-4.1)
     # The bridge uses MPV's client/render headers but resolves its symbols at
     # runtime. Keep libmpv out of DT_NEEDED so Java/JNA and the bridge share
     # one selected system ABI instead of loading two copies.
     pkg_check_modules(MPV REQUIRED mpv)
+    pkg_check_modules(XCOMPOSITE REQUIRED IMPORTED_TARGET xcomposite)
 
     set(SOURCES
         common/mpv_core.cpp
@@ -48,11 +50,15 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(player_bridge PRIVATE
         pthread dl
         X11::X11
+        ${OPENGL_LIBRARIES}
         PkgConfig::GTK3
         PkgConfig::WEBKITGTK
+        PkgConfig::XCOMPOSITE
     )
     set_target_properties(player_bridge PROPERTIES
         PREFIX "lib"
         SUFFIX ".so"
+        # Fail the build (not the app launch) on undefined symbols.
+        LINK_FLAGS "-Wl,-z,defs"
     )
 endif()

@@ -3,7 +3,7 @@ Version:        %{?app_version}%{!?app_version:0.0.0}
 Release:        1%{?dist}
 Summary:        CloudStream Desktop media client
 License:        GPL-3.0-or-later
-URL:            https://github.com/errorcode26/CS3-desktop-client-unofficial
+URL:            https://github.com/AMRGAMAL-1/CloudStream-Desktop-Linux
 # The jpackage launcher and the JNI bridge are built on the release baseline
 # (glibc 2.35, GCC 11+ / GLIBCXX >= 3.4.29). Express the ABI requirements via
 # ELF capabilities and glibc version instead of distro-specific package names.
@@ -17,12 +17,11 @@ Requires:       libGL.so.1()(64bit)
 Requires:       libEGL.so.1()(64bit)
 Recommends:     libwayland-client.so.0()(64bit)
 Recommends:     xorg-x11-server-Xwayland
-Suggests:       vlc
 BuildArch:      %{_arch}
 
 %description
-CloudStream Desktop is a JVM desktop client with a native GTK/WebKitGTK
-player surface and system-provided MPV/VLC multimedia backends.
+CloudStream Desktop — free media center for streaming and downloading
+movies, TV shows and anime. Extension-based, ad-free, with watch tracking.
 
 %prep
 
