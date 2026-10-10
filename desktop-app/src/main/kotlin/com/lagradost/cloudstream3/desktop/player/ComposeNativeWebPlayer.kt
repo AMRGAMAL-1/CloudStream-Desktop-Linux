@@ -369,8 +369,12 @@ fun ComposeNativeWebPlayer(
                 exhaustionReason = exhaustionReason,
                 exhaustionDiagnostics = exhaustionDiagnostics,
                 // First push of a (re)mounted player: the parked page still
-                // holds the previous session's dismissed banner.
-                forceSessionReset = forceSessionResetOnce.getAndSet(false),
+                // holds the previous session's dismissed banner. Sent on EVERY
+                // probed (link-less) push, not one-shot: the one-shot alone
+                // dies in a lost pre-remap push and never reaches the page.
+                // Repeated hard-resets are idempotent (same handler recomputes
+                // final DOM synchronously right after).
+                forceSessionReset = link == null || forceSessionResetOnce.getAndSet(false),
                 audioNormalization = audioNormalization,
                 audioNormStrength = audioNormStrength,
                 audioSpatial = audioSpatial,
