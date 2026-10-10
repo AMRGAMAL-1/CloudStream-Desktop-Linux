@@ -388,6 +388,7 @@
         // Kill all pending timers that could fire from a stale session
         if (window.resumeDismissTimer) { clearTimeout(window.resumeDismissTimer); window.resumeDismissTimer = null; }
         if (window.probingDismissTimer) { clearTimeout(window.probingDismissTimer); window.probingDismissTimer = null; }
+        if (typeof hideTimer !== 'undefined' && hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
         if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null; }
         if (endCountdownTimer) { clearInterval(endCountdownTimer); endCountdownTimer = null; }
         if (_probingPacerTimer) { clearTimeout(_probingPacerTimer); _probingPacerTimer = null; }
@@ -831,7 +832,11 @@
                     // Never idle-hide during probing: the init banner must
                     // stay visible (and composited) until playback is ready,
                     // even if the user never touches the mouse. Mirrors the
-                    // probing guard at showControls entry.
+                    // probing guard at showControls entry. Also never hide
+                    // before the session's first metadata arrived (stale
+                    // timers from a previous session must not kill the new
+                    // one while its page is still loading).
+                    if (!window.lastMeta) return;
                     const pOvl = document.getElementById('linkProbingOverlay');
                     const probingActive = pOvl && pOvl.classList.contains('active') &&
                         !pOvl.classList.contains('dismissing') &&
