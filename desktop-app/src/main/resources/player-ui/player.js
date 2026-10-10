@@ -2039,10 +2039,7 @@
             // or when the title string is enriched/updated by metadata sources.
             const isInitialSession = !currentTitle;
             const isEpisodeChange = currentEpisodeId !== '' && activeId !== '' && currentEpisodeId !== activeId;
-            // Relaunch on the parked page (same title/episode, e.g. replay):
-            // the banner must come back like a fresh session.
-            const forceReset = meta.forceSessionReset === true;
-            const isNewSession = forceReset || isInitialSession || isEpisodeChange;
+            const isNewSession = isInitialSession || isEpisodeChange;
             const isAlreadyPlaying = globalIsPlaying || currentPosMs > 50 || window.hasDismissedInitialProbing;
 
             if (isNewSession) {

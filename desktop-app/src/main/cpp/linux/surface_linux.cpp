@@ -1271,6 +1271,7 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
     }
     if (gen != g_snapGen) {
         // A watchdog reset invalidated this request; drop the late result.
+        LOG_TO_FILE("[NativeBridge:Linux] DIAG snapshot dropped gen " << gen << " vs " << g_snapGen);
         if (surf) cairo_surface_destroy(surf);
         return;
     }
@@ -1377,15 +1378,18 @@ void onOverlaySnapshot(GObject* src, GAsyncResult* res, gpointer data) {
 // Request one overlay snapshot, paired with a repaint invalidate. Called only
 // from the render path (same GTK thread), so every snapshot is consumed by a
 // composite exactly once: zero waste, self-throttling to the display rate.
-// Throttled to ~15fps: fullscreen software snapshots + GL uploads every frame
-// saturate weak iGPUs (stuttering video AND overlay). UI animation stays
-// smooth at 15fps; the upload-skip in drawControlsSnapshot removes the rest.
+// Throttled to ~15fps ONLY while video frames compete for the GPU: fullscreen
+// software snapshots + GL uploads every frame saturate weak iGPUs (stuttering
+// video AND overlay). With no video flowing (probing, paused, idle) snapshots
+// run unthrottled so banner/spinner/controls animate fully smoothly.
 static void requestOverlaySnapshot(GtkWidget* controlsWin, WebKitWebView* webView) {
     if (!controlsWin || !GTK_IS_WIDGET(controlsWin) || !webView || !WEBKIT_IS_WEB_VIEW(webView)) return;
     {
         std::lock_guard<std::mutex> lock(g_lifecycleMutex);
         if (g_teardownRequested || g_webView != webView || g_snapInFlight) return;
-        if (g_get_monotonic_time() - g_lastSnapReqUs < 66000) return;
+        const bool videoActive =
+            (g_get_monotonic_time() - g_lastMpvUpdateUs.load(std::memory_order_relaxed)) < 500000;
+        if (videoActive && g_get_monotonic_time() - g_lastSnapReqUs < 66000) return;
         g_snapInFlight = true;
         g_snapWaitTicks = 0;
         if (!g_snapCancel) g_snapCancel = g_cancellable_new();

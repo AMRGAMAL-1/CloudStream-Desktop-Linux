@@ -55,8 +55,6 @@ data class PlayerUiSyncState(
     val isExhausted: Boolean = false,
     val exhaustionReason: String? = null,
     val exhaustionDiagnostics: String? = null,
-    /** Relaunch on the parked page reuses it: force the banner back. */
-    val forceSessionReset: Boolean = false,
     val audioNormalization: Boolean = false,
     val audioNormStrength: String = "Medium",
     val audioSpatial: Boolean = false,
